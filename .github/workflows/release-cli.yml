@@ -6,8 +6,12 @@
 # 新文件不产生合并冲突；上游代码不依赖本文件。
 #
 # 构建链路（全部来自上游自带脚本，无自定义构建逻辑）：
-#   pnpm --filter @zcode/cli build:sea        构建 CLI bundle 及其 workspace 依赖
-#   pnpm --filter @zcode/cli sea --target T   产出单文件可执行程序（Node SEA）
+#   pnpm --filter "@zcode/cli..." build        pnpm 拓扑构建 CLI bundle 及其全部 workspace 依赖
+#   pnpm exec tsc -p packages/shared/tsconfig.json   显式编译 @zcode/shared（源码形态包，无 build 脚本）
+#   pnpm --filter @zcode/cli sea --target T    产出单文件可执行程序（Node SEA）
+#
+# 注意：不要用上游的 build:sea 脚本——它末尾固定 `node scripts/build-sea.mjs --all`，
+# 会在每个 runner 上重复构建全部 6 个目标（还包含大量跨平台无意义工作）。
 #
 # 平台矩阵：linux-x64 / win-x64 / darwin-x64 / darwin-arm64。
 # darwin 目标必须在 macOS runner 上构建（注入后需 codesign 临时签名）。
@@ -69,7 +73,14 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build CLI bundle and workspace deps
-        run: pnpm --filter @zcode/cli build:sea
+        # 等价于上游 build:sea 的 turbo 前半段，但用 pnpm 拓扑构建且只构建本矩阵需要的部分
+        run: pnpm --filter "@zcode/cli..." build
+
+      - name: Compile @zcode/shared dist
+        # shared 是源码形态包（无 build 脚本，exports 直指 src），但 SEA 运行时闭包
+        # 断言 packages/shared/dist/index.js 必须存在；上游构建机靠 typecheck 副产物，
+        # 干净 CI 需要显式编译（2026-10-20 windows runner 实测报错）。
+        run: pnpm exec tsc -p packages/shared/tsconfig.json
 
       - name: Build SEA binary (${{ matrix.target }})
         # build-sea 脚本自带 host 目标冒烟测试（--version），跨平台目标跳过
