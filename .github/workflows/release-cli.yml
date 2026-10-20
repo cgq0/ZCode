@@ -1,0 +1,171 @@
+# ============================================================================
+# release-cli — cgq0 fork 专属 CI：构建跨平台 zcode-cli 单文件并发布 Release
+#
+# 注意：GitHub 只从 <默认分支>/.github/workflows/ 读取 workflow，本文件无法收进
+# cgq0/ 命名空间——这是 cgq0/ 隔离原则的唯一例外。上游当前没有 .github 目录，
+# 新文件不产生合并冲突；上游代码不依赖本文件。
+#
+# 构建链路（全部来自上游自带脚本，无自定义构建逻辑）：
+#   pnpm --filter @zcode/cli build:sea        构建 CLI bundle 及其 workspace 依赖
+#   pnpm --filter @zcode/cli sea --target T   产出单文件可执行程序（Node SEA）
+#
+# 平台矩阵：linux-x64 / win-x64 / darwin-x64 / darwin-arm64。
+# darwin 目标必须在 macOS runner 上构建（注入后需 codesign 临时签名）。
+#
+# 发版策略：tag 为 zcode-cli-v<根 package.json 版本号>；版本号未变时只保留 run
+# artifacts、不重复发 Release。workflow_dispatch 勾选 force_release 可强制覆盖。
+# ============================================================================
+
+name: release-cli
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "cgq0/**"
+      - "**/*.md"
+      - "AGENTS.md"
+  workflow_dispatch:
+    inputs:
+      force_release:
+        description: "zcode-cli-v<version> 已存在时强制删除并重建 Release"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-cli
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: linux-x64 }
+          - { os: windows-latest, target: win-x64 }
+          - { os: macos-latest, target: darwin-x64 }
+          - { os: macos-latest, target: darwin-arm64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm 版本取自根 package.json 的 packageManager 字段（10.33.2）
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.14.0" # 与 mise.toml 基线一致
+          cache: pnpm
+
+      - name: Install dependencies
+        env:
+          # Electron 二进制只有桌面端用，CLI 构建不需要，跳过下载省时间带宽
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+        run: pnpm install --frozen-lockfile
+
+      - name: Build CLI bundle and workspace deps
+        run: pnpm --filter @zcode/cli build:sea
+
+      - name: Build SEA binary (${{ matrix.target }})
+        # build-sea 脚本自带 host 目标冒烟测试（--version），跨平台目标跳过
+        run: pnpm --filter @zcode/cli sea --target ${{ matrix.target }}
+
+      - name: Generate checksums
+        shell: bash
+        env:
+          SEA_TARGET: ${{ matrix.target }}
+        run: |
+          node --input-type=commonjs - <<'EOF'
+          const { createHash } = require("node:crypto");
+          const fs = require("node:fs");
+          const dir = "apps/zcode-cli/packages/cli/dist";
+          const target = process.env.SEA_TARGET;
+          const lines = fs
+            .readdirSync(dir)
+            .filter((f) => /^zcode-/.test(f))
+            .sort()
+            .map(
+              (f) =>
+                `${createHash("sha256").update(fs.readFileSync(`${dir}/${f}`)).digest("hex")}  ${f}`,
+            );
+          fs.writeFileSync(`${dir}/SHA256SUMS-${target}.txt`, `${lines.join("\n")}\n`);
+          console.log(lines.join("\n"));
+          EOF
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: zcode-cli-${{ matrix.target }}
+          path: |
+            apps/zcode-cli/packages/cli/dist/zcode-*
+            apps/zcode-cli/packages/cli/dist/SHA256SUMS-${{ matrix.target }}.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Resolve version and check existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          FORCE: ${{ inputs.force_release }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          if gh release view "zcode-cli-v$VERSION" > /dev/null 2>&1; then
+            if [ "$FORCE" = "true" ]; then
+              echo "SKIP_RELEASE=false" >> "$GITHUB_ENV"
+              gh release delete "zcode-cli-v$VERSION" --yes --cleanup-tag
+            else
+              echo "SKIP_RELEASE=true" >> "$GITHUB_ENV"
+              echo "Release zcode-cli-v$VERSION already exists — keeping artifacts on this run only."
+            fi
+          else
+            echo "SKIP_RELEASE=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Create GitHub Release
+        if: env.SKIP_RELEASE == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cat > release-notes-body.md <<'NOTES'
+          跨平台 zcode-cli 单文件构建（Node SEA，自带运行时，目标机器无需安装 Node）。
+
+          | 文件 | 平台 |
+          |---|---|
+          | zcode-linux-x64 | Linux x64 |
+          | zcode-windows-x64.exe | Windows x64 |
+          | zcode-darwin-x64 | macOS（Intel） |
+          | zcode-darwin-arm64 | macOS（Apple Silicon） |
+
+          macOS 首次运行被 Gatekeeper 拦截时：`xattr -d com.apple.quarantine ./zcode-darwin-*`
+          Windows SmartScreen 警告：二进制未做 Authenticode 签名，选「更多信息 → 仍要运行」。
+          校验和见各 SHA256SUMS-<target>.txt。
+          NOTES
+          # 非官方构建声明置顶：明确产物来源与构建 commit（商标合规：nominative use）
+          {
+            printf '%s\n\n' "> ℹ️ 非官方构建：本产物由 fork [${GITHUB_REPOSITORY}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}) 的 CI 基于 [zai-org/ZCode](https://github.com/zai-org/ZCode)（Apache-2.0）源码自动编译，与智谱官方无关。构建来源 commit：\`${GITHUB_SHA}\`"
+            cat release-notes-body.md
+          } > release-notes.md
+          gh release create "zcode-cli-v$VERSION" \
+            artifacts/zcode-* \
+            artifacts/SHA256SUMS-*.txt \
+            --title "zcode-cli v$VERSION" \
+            --notes-file release-notes.md

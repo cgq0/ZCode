@@ -1,0 +1,112 @@
+# ============================================================================
+# sync-upstream — cgq0 fork 专属：定时合并上游 zai-org/ZCode
+# （.github 目录例外说明同 release-cli.yml；上游代码不依赖本文件。）
+#
+# 策略：
+#   - 每日尝试 merge upstream/main，成功则 push 到本 fork 的 main
+#   - 合并冲突或上游重写历史 → 自动开 issue 通知人工处理，不推送任何变更
+#   - 合并成功后显式触发 release-cli（GITHUB_TOKEN 的 push 不会连锁触发其他
+#     workflow，这是 GitHub 的防递归设计，必须手动 dispatch）
+# ============================================================================
+
+name: sync-upstream
+
+on:
+  schedule:
+    - cron: "17 21 * * *" # 21:17 UTC = 每日 05:17 北京时间，错开整点调度高峰
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  actions: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false # 合并进行中不能被下一次调度杀掉
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # merge-base 判断需要完整历史
+
+      - name: Configure git identity
+        run: |
+          git config user.name "cgq0-sync-bot"
+          git config user.email "cgq0@users.noreply.github.com"
+
+      - name: Merge upstream/main
+        id: sync
+        env:
+          UPSTREAM_REPO: zai-org/ZCode
+          UPSTREAM_BRANCH: main
+        run: |
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch --no-tags upstream "$UPSTREAM_BRANCH"
+
+          local_sha="$(git rev-parse HEAD)"
+          remote_sha="$(git rev-parse "upstream/${UPSTREAM_BRANCH}")"
+
+          if [ "$local_sha" = "$remote_sha" ]; then
+            status="up-to-date"
+          elif git merge-base --is-ancestor "upstream/${UPSTREAM_BRANCH}" HEAD; then
+            status="local-ahead"
+          elif git merge --no-edit "upstream/${UPSTREAM_BRANCH}"; then
+            git push origin "HEAD:main"
+            status="merged"
+          else
+            git merge --abort 2>/dev/null || true
+            status="conflict"
+          fi
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "### sync-upstream: $status" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Trigger release build
+        if: steps.sync.outputs.status == 'merged'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run release-cli.yml --ref main
+
+      - name: Create sync-conflict label if missing
+        if: steps.sync.outputs.status == 'conflict'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh label create sync-conflict --color d93f0b --description "上游同步需要人工处理" 2>/dev/null || true
+
+      - name: Open issue on conflict
+        if: steps.sync.outputs.status == 'conflict'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          UPSTREAM_REPO: zai-org/ZCode
+        run: |
+          cat > issue-body.md <<BODY
+          ## 上游同步冲突
+
+          定时任务尝试 merge \`${UPSTREAM_REPO}/main\` 失败（冲突或上游重写历史）。
+          本次调度**未推送任何变更**，fork 的 main 保持原样。
+
+          查看待合入的上游提交：
+          https://github.com/${GITHUB_REPOSITORY}/compare/main...${UPSTREAM_REPO}:main
+
+          ### 处理方式
+
+          \`\`\`sh
+          git remote add upstream https://github.com/${UPSTREAM_REPO}.git   # 已加过可跳过
+          git fetch upstream main
+          git merge upstream/main
+          \`\`\`
+
+          解决冲突后 push；如上游重写历史需要快照重放，属人工决策，见 cgq0/README.md 决策记录。
+          处理完成后可用 workflow_dispatch 手动重跑本工作流。
+          BODY
+          gh issue create \
+            --title "上游同步冲突：需要人工处理（$(date -u '+%F')）" \
+            --label "sync-conflict" \
+            --body-file issue-body.md
