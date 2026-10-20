@@ -82,6 +82,26 @@ jobs:
         # 干净 CI 需要显式编译（2026-10-20 windows runner 实测报错）。
         run: pnpm exec tsc -p packages/shared/tsconfig.json
 
+      - name: Build official plugin MCP runtimes
+        # SEA 资产收集对 requiresRuntime 插件断言 dist/mcp/server.js（browser-use 复用
+        # node-repl-host 的 server）。插件 dist 被 gitignore，干净 CI 必须显式构建。
+        # 清单对齐上游 build-desktop-agent-cli.mjs 的 requiredDevPluginRuntimeBuilds，
+        # 上游新增 requiresRuntime 插件时需同步此处。
+        shell: bash
+        run: |
+          for pkg in \
+            @zcode/android-emulator-plugin \
+            @zcode/ios-simulator-plugin \
+            @zcode/node-repl-host \
+            @zcode/browser-use-plugin \
+            @zcode/documents-plugin \
+            @zcode/pdf-plugin \
+            @zcode/presentations-plugin \
+            @zcode/spreadsheets-plugin \
+          ; do
+            pnpm --filter "$pkg" build
+          done
+
       - name: Build SEA binary (${{ matrix.target }})
         # build-sea 脚本自带 host 目标冒烟测试（--version），跨平台目标跳过
         run: pnpm --filter @zcode/cli sea --target ${{ matrix.target }}
