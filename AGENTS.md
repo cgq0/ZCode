@@ -83,3 +83,8 @@ affected 使用 Vitest 官方选择，只运行选中的根 UT；选中整个套
 - `info` 用于进程和会话生命周期、权限结果、一次性初始化等生产可用事件。
 - `warn` 用于可恢复异常；`error` 用于崩溃、握手失败、鉴权丢失等不可恢复错误。
 - 不在日志、示例或提交中写入凭据、真实用户数据和内部服务地址。
+
+## Fork 专属命名空间（cgq0/）
+
+- `cgq0/` 是本 fork 维护者的专属目录（章程、日记、TODOs、脚本），上游代码不引用它；合并上游时不得把 `cgq0/` 的内容混入上游文件树，文档读写规矩见 `cgq0/README.md`。
+- 本 fork 的 commit 一律通过 `cgq0/scripts/ai-commit.sh` 提交（自动附加 `X-AI` 模型@harness/版本 trailer，merge commit 除外），不要直接裸跑 `git commit`。
