@@ -106,6 +106,18 @@ jobs:
         # build-sea 脚本自带 host 目标冒烟测试（--version），跨平台目标跳过
         run: pnpm --filter @zcode/cli sea --target ${{ matrix.target }}
 
+      - name: Rename binary to zcode-cli-*
+        # 与产品命名（Release/tag 均为 zcode-cli-v*）对齐；只改发行产物名，
+        # 不碰上游 outputBinaryName 逻辑。上游若新增平台需同步 case 列表。
+        shell: bash
+        run: |
+          cd apps/zcode-cli/packages/cli/dist
+          for f in zcode-darwin-* zcode-linux-* zcode-windows-*; do
+            [ -e "$f" ] || continue
+            mv "$f" "zcode-cli-${f#zcode-}"
+          done
+          ls -1 zcode-cli-*
+
       - name: Generate checksums
         shell: bash
         env:
@@ -181,12 +193,13 @@ jobs:
 
           | 文件 | 平台 |
           |---|---|
-          | zcode-linux-x64 | Linux x64 |
-          | zcode-windows-x64.exe | Windows x64 |
-          | zcode-darwin-x64 | macOS（Intel） |
-          | zcode-darwin-arm64 | macOS（Apple Silicon） |
+          | zcode-cli-linux-x64 | Linux x64 |
+          | zcode-cli-windows-x64.exe | Windows x64 |
+          | zcode-cli-darwin-x64 | macOS（Intel） |
+          | zcode-cli-darwin-arm64 | macOS（Apple Silicon） |
 
-          macOS 首次运行被 Gatekeeper 拦截时：`xattr -d com.apple.quarantine ./zcode-darwin-*`
+          安装：下载对应平台产物后改名 `zcode` 放入 PATH（如 `~/.local/bin`），`chmod +x` 即用。
+          macOS 首次运行被 Gatekeeper 拦截时：`xattr -d com.apple.quarantine ./zcode-cli-darwin-*`
           Windows SmartScreen 警告：二进制未做 Authenticode 签名，选「更多信息 → 仍要运行」。
           校验和见各 SHA256SUMS-<target>.txt。
           NOTES
