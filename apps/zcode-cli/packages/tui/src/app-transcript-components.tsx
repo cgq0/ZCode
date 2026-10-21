@@ -79,7 +79,7 @@ export function ContentPane({
             : h(EmptyTranscriptLogo, { animated: animateEmptyLogo, key: "empty-transcript-logo" }),
         ]
       : messages.map((message, index) =>
-          h(MessageRow, {
+          h(MemoizedMessageRow, {
             copy,
             expandedWorkflowRunIds,
             index,
@@ -92,20 +92,40 @@ export function ContentPane({
   );
 }
 
-export function MessageRow({
-  copy = DEFAULT_TUI_COPY,
-  expandedWorkflowRunIds,
-  message,
-  terminalWidth = 100,
-  workflowCardsByToolCallId,
-}: {
+type MessageRowProps = {
   copy?: TuiCopy;
   expandedWorkflowRunIds?: ReadonlySet<string>;
   index: number;
   message: Message;
   terminalWidth?: number;
   workflowCardsByToolCallId?: ReadonlyMap<string, TuiWorkflowCard>;
-}): React.ReactElement {
+};
+
+// 比较器刻意不比较 index：MessageRow 不消费它，消息数组位移（如插行）不应引发全量重渲染。
+// 其余 prop 均按引用比较——copy 是 locale 常量，workflowCardsByToolCallId 是
+// useMemo([mirror])，expandedWorkflowRunIds 是 useState 持有的 ReadonlySet，
+// 无变化时引用稳定（2026-10-21 spec 核实）。
+export function messageRowPropsAreEqual(prev: MessageRowProps, next: MessageRowProps): boolean {
+  return (
+    prev.message === next.message &&
+    prev.copy === next.copy &&
+    prev.terminalWidth === next.terminalWidth &&
+    prev.expandedWorkflowRunIds === next.expandedWorkflowRunIds &&
+    prev.workflowCardsByToolCallId === next.workflowCardsByToolCallId
+  );
+}
+
+// 流式期间每个 delta 都会重建 messages 数组：未变化行的 message 引用不变，memo 跳过
+// 整行重建，把每 delta 成本从 O(转录长度) 降到 O(单个流式行)。
+export const MemoizedMessageRow = React.memo(MessageRow, messageRowPropsAreEqual);
+
+export function MessageRow({
+  copy = DEFAULT_TUI_COPY,
+  expandedWorkflowRunIds,
+  message,
+  terminalWidth = 100,
+  workflowCardsByToolCallId,
+}: MessageRowProps): React.ReactElement {
   const parts = message.parts ?? [];
   if (message.role === "timeline") {
     return h(CompactTimelineRow, { copy, message, terminalWidth });

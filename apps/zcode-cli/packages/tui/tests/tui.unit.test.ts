@@ -3,7 +3,12 @@ import test from "node:test";
 import { SessionEventType, type SessionEvent } from "@zcode/contracts";
 import { getZCodeCopy } from "@zcode/i18n";
 import { LoginRequiredPanel } from "../src/app-components.js";
-import { ContentPane, MessageRow } from "../src/app-transcript-components.js";
+import {
+  ContentPane,
+  MemoizedMessageRow,
+  MessageRow,
+  messageRowPropsAreEqual,
+} from "../src/app-transcript-components.js";
 import { EmptyTranscriptLogo, ZCODE_LOGO_LINES } from "../src/app-empty-transcript.js";
 import { SHIMMER_SWEEP_PERIOD_MS, shimmerTextSegments } from "../src/app-motion.js";
 import { ShikiDiffView, buildDiffRows, buildSplitDiffRows } from "../src/app-shiki-diff-view.js";
@@ -11,6 +16,8 @@ import {
   highlightShikiCodeLines,
   inferShikiLanguage,
   resetShikiHighlighterForTest,
+  SHIKI_HIGHLIGHT_CACHE_LIMIT,
+  shikiHighlightCacheSizeForTest,
 } from "../src/app-shiki-highlighter.js";
 import { SIDEBAR_CONTENT_WIDTH, Sidebar } from "../src/app-sidebar.js";
 import { moveInputCursorToEnd } from "../src/app-input-pane.js";
@@ -85,7 +92,7 @@ test("hides the empty transcript logo when messages are present", () => {
   );
   const lines = collectTextLines(MessageRow({ copy: EN_COPY, index: 0, message }));
 
-  assert.equal(child?.type, MessageRow);
+  assert.equal(child?.type, MemoizedMessageRow);
   assert.notEqual(child?.type, EmptyTranscriptLogo);
   assert.equal(lines.includes(ZCODE_LOGO_LINES[0]), false);
   assert.ok(lines.some((line) => line.includes("hello")));
@@ -596,6 +603,82 @@ test("falls back when Shiki cannot infer a language", async () => {
   });
 
   assert.equal(highlighted, undefined);
+});
+
+test("bounds the shiki highlight cache with LRU eviction", async () => {
+  resetShikiHighlighterForTest();
+
+  const probe = (i: number) => ({
+    filePath: `src/cache-probe.ts`,
+    lines: [`const probe${i} = ${i};`],
+    mode: "dark" as const,
+  });
+
+  const first = await highlightShikiCodeLines(probe(0));
+  const second = await highlightShikiCodeLines(probe(1));
+  // 命中 first（touch）：队首变 second，后续恰好触发一次淘汰时被挤出的应是 second。
+  assert.equal(await highlightShikiCodeLines(probe(0)), first);
+
+  // 再填 LIMIT - 1 个新条目（probe 2..LIMIT），总条目 LIMIT + 1 → 淘汰队首 probe(1)。
+  for (let i = 2; i <= SHIKI_HIGHLIGHT_CACHE_LIMIT; i++) {
+    await highlightShikiCodeLines(probe(i));
+  }
+
+  assert.ok(shikiHighlightCacheSizeForTest() <= SHIKI_HIGHLIGHT_CACHE_LIMIT);
+  // 被 touch 保住的 first 仍返回原引用；被淘汰的 second 重算产生新引用。
+  assert.equal(await highlightShikiCodeLines(probe(0)), first);
+  const recomputed = await highlightShikiCodeLines(probe(1));
+  assert.ok(recomputed);
+  assert.notEqual(recomputed, second);
+});
+
+test("memo comparator skips unchanged rows and ignores row index", () => {
+  const message: Message = { content: "hi", role: "agent" };
+  const base = { copy: EN_COPY, index: 0, message, terminalWidth: 80 };
+
+  // index 不被 MessageRow 消费，单独变化不触发重渲染。
+  assert.equal(messageRowPropsAreEqual(base, { ...base, index: 3 }), true);
+  assert.equal(messageRowPropsAreEqual(base, { ...base }), true);
+
+  // 任一实质 prop 变化都必须重渲染。
+  assert.equal(messageRowPropsAreEqual(base, { ...base, message: { ...message } }), false);
+  assert.equal(messageRowPropsAreEqual(base, { ...base, copy: ZH_COPY }), false);
+  assert.equal(messageRowPropsAreEqual(base, { ...base, terminalWidth: 101 }), false);
+
+  const cards = new Map();
+  const expanded = new Set<string>();
+  assert.equal(
+    messageRowPropsAreEqual(
+      { ...base, expandedWorkflowRunIds: expanded, workflowCardsByToolCallId: cards },
+      { ...base, expandedWorkflowRunIds: expanded, workflowCardsByToolCallId: cards },
+    ),
+    true,
+  );
+  assert.equal(
+    messageRowPropsAreEqual(
+      { ...base, workflowCardsByToolCallId: cards },
+      { ...base, workflowCardsByToolCallId: new Map() },
+    ),
+    false,
+  );
+  assert.equal(
+    messageRowPropsAreEqual(
+      { ...base, expandedWorkflowRunIds: expanded },
+      { ...base, expandedWorkflowRunIds: new Set<string>() },
+    ),
+    false,
+  );
+});
+
+test("ContentPane renders memoized message rows", () => {
+  const message: Message = { content: "hello", role: "user" };
+  const [child] = reactElementChildren(
+    ContentPane({ copy: EN_COPY, focused: false, messages: [message] }),
+  );
+
+  // memo 对象的 $$typeof 是 react.memo 符号，包裹本体是 MessageRow。
+  assert.equal(child?.type, MemoizedMessageRow);
+  assert.equal((MemoizedMessageRow as { $$typeof?: symbol }).$$typeof, Symbol.for("react.memo"));
 });
 
 test("builds split diff rows by pairing adjacent deletions and additions", () => {
