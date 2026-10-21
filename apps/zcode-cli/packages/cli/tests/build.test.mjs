@@ -9,10 +9,12 @@ import { build } from "esbuild";
 import {
   assertZodBundleIdentity,
   createZodDedupePlugin,
+  parseGitDescribeToBuildMetadata,
   readRootPackageVersion,
   resolveBuildAliases,
   resolveBuildOptions,
   resolveBuildExternal,
+  resolveForkCliVersion,
 } from "../scripts/build.mjs";
 
 async function withZodFixture(run) {
@@ -180,6 +182,60 @@ test("rejects missing root package versions during CLI builds", async () => {
       recursive: true,
     });
   }
+});
+
+test("fork build metadata derives commit distance and sha from git describe output", () => {
+  // 本仓库 tag 是 zcode-cli-v* 的 monorepo 风格，tag 里的 `-` 与数字不能干扰解析。
+  assert.equal(
+    parseGitDescribeToBuildMetadata("zcode-cli-v3.16.2-9-gd4bbd48d\n"),
+    "cq.9.gd4bbd48d",
+  );
+  assert.equal(parseGitDescribeToBuildMetadata("v0.17.0-0-gabcdef1-dirty"), "cq.0.gabcdef1.dirty");
+  assert.equal(parseGitDescribeToBuildMetadata("v0.17.0-rc.1-3-gabc1234"), "cq.3.gabc1234");
+  assert.equal(parseGitDescribeToBuildMetadata("not-a-describe-output"), undefined);
+  assert.equal(parseGitDescribeToBuildMetadata(""), undefined);
+});
+
+test("fork CLI version falls back from describe to rev-parse to a dev tag", async () => {
+  const describeOk = async (args) => {
+    if (args[0] !== "describe") throw new Error(`unexpected git call: ${args[0]}`);
+    return "zcode-cli-v3.16.2-9-gd4bbd48d\n";
+  };
+  const revParseOnly = async (args) => {
+    if (args[0] !== "rev-parse")
+      throw new Error("fatal: no names found, cannot describe anything.");
+    return "deadbeef\n";
+  };
+  const revParseGarbage = async (args) => {
+    if (args[0] !== "rev-parse")
+      throw new Error("fatal: no names found, cannot describe anything.");
+    return "HEAD\n";
+  };
+  const gitMissing = async () => {
+    throw new Error("spawn git ENOENT");
+  };
+
+  assert.equal(
+    await resolveForkCliVersion({ baseVersion: "0.17.0", execGit: describeOk }),
+    "0.17.0+cq.9.gd4bbd48d",
+  );
+  assert.equal(
+    await resolveForkCliVersion({ baseVersion: "0.17.0", execGit: revParseOnly }),
+    "0.17.0+cq.dev.gdeadbeef",
+  );
+  assert.equal(
+    await resolveForkCliVersion({ baseVersion: "0.17.0", execGit: revParseGarbage }),
+    "0.17.0+cq.dev",
+  );
+  assert.equal(
+    await resolveForkCliVersion({ baseVersion: "0.17.0", execGit: gitMissing }),
+    "0.17.0+cq.dev",
+  );
+  // base 上已残留 build metadata 时以本仓库 git 信息整体重建，不叠加多段。
+  assert.equal(
+    await resolveForkCliVersion({ baseVersion: "0.17.0+stale", execGit: describeOk }),
+    "0.17.0+cq.9.gd4bbd48d",
+  );
 });
 
 test("desktop agent builds minify the app-facing JS bundle", () => {
