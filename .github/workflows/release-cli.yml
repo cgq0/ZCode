@@ -16,8 +16,11 @@
 # 平台矩阵：linux-x64 / win-x64 / darwin-x64 / darwin-arm64。
 # darwin 目标必须在 macOS runner 上构建（注入后需 codesign 临时签名）。
 #
-# 发版策略：tag 为 zcode-cli-v<根 package.json 版本号>；版本号未变时只保留 run
-# artifacts、不重复发 Release。workflow_dispatch 勾选 force_release 可强制覆盖。
+# 发版策略（2026-10-21 裁决，见 spec fork-build-metadata-version-identity）：
+#   - tag 恒为 zcode-cli-v<根 package.json 版本号>，每个版本只有一条 Release；
+#   - 每次 push 刷新标题/说明并整体替换资产：zip 文件名带 cq.<n>.g<sha> 构建身份，
+#     包内可执行文件名恒定 zcode-cli（win: zcode-cli.exe），安装路径不随构建漂移；
+#   - 旧构建经 Actions run artifacts 回溯（保留 14 天），Release 页面不累积。
 # ============================================================================
 
 name: release-cli
@@ -30,11 +33,7 @@ on:
       - "**/*.md"
       - "AGENTS.md"
   workflow_dispatch:
-    inputs:
-      force_release:
-        description: "zcode-cli-v<version> 已存在时强制删除并重建 Release"
-        type: boolean
-        default: false
+    # 固定 Release 语义下每次 push 都刷新资产，无需 force 开关；dispatch 仅作手动重跑。
 
 permissions:
   contents: write
@@ -62,6 +61,22 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Resolve fork build metadata
+        # zip 资产名与 Release 标题要和二进制 --version 里的身份一致，这里独立解析
+        # 同一份 git 信息（与 build.mjs 的 parseGitDescribeToBuildMetadata 语义一致，
+        # 由 build.test.mjs 锚定）。CI 有全量历史且树干净，解析异常直接失败：
+        # 资产名与二进制不一致比构建失败更糟。
+        shell: bash
+        run: |
+          META=$(node -e '
+            const { execFileSync } = require("node:child_process");
+            const out = execFileSync("git", ["describe", "--tags", "--long", "--dirty"], { encoding: "utf8" }).trim();
+            const m = /^(.+?)-(\d+)-g([0-9a-f]+)(-dirty)?$/.exec(out);
+            if (!m) { console.error(`unexpected git describe output: ${out}`); process.exit(1); }
+            console.log(["cq", m[2], `g${m[3]}`, m[4] && "dirty"].filter(Boolean).join("."));
+          ')
+          echo "FORK_META=$META" >> "$GITHUB_ENV"
 
       # pnpm 版本取自根 package.json 的 packageManager 字段（10.33.2）
       - uses: pnpm/action-setup@v4
@@ -111,17 +126,35 @@ jobs:
         # build-sea 脚本自带 host 目标冒烟测试（--version），跨平台目标跳过
         run: pnpm --filter @zcode/cli sea --target ${{ matrix.target }}
 
-      - name: Rename binary to zcode-cli-*
-        # 与产品命名（Release/tag 均为 zcode-cli-v*）对齐；只改发行产物名，
-        # 不碰上游 outputBinaryName 逻辑。上游若新增平台需同步 case 列表。
+      - name: Package binary into versioned zip
+        # 后缀只进 zip 文件名，包内文件名恒定 zcode-cli（win: zcode-cli.exe）：
+        # 下载/安装路径不随构建漂移，身份由 zip 名 + 二进制 --version 双重承载。
         shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
+          version="$(node -p "require('./package.json').version")"
+          case "$TARGET" in
+            win-x64)      src="zcode-windows-x64.exe"; inner="zcode-cli.exe" ;;
+            linux-x64)    src="zcode-linux-x64";       inner="zcode-cli" ;;
+            darwin-x64)   src="zcode-darwin-x64";      inner="zcode-cli" ;;
+            darwin-arm64) src="zcode-darwin-arm64";    inner="zcode-cli" ;;
+            *) echo "unknown target: $TARGET" >&2; exit 1 ;;
+          esac
+          zipname="zcode-cli-${version}-${FORK_META}-${TARGET}.zip"
           cd apps/zcode-cli/packages/cli/dist
-          for f in zcode-darwin-* zcode-linux-* zcode-windows-*; do
-            [ -e "$f" ] || continue
-            mv "$f" "zcode-cli-${f#zcode-}"
-          done
-          ls -1 zcode-cli-*
+          mkdir pkg
+          cp "$src" "pkg/$inner"
+          # cp 会丢执行位（umask 归一），unix 内核要它才能直接跑
+          [ "$RUNNER_OS" = "Windows" ] || chmod 755 "pkg/$inner"
+          # windows runner 的 git-bash 无 zip 命令，回退 7z（三平台镜像均预装）
+          (cd pkg && if command -v zip > /dev/null 2>&1; then
+            zip -q "../$zipname" "$inner"
+          else
+            7z a -tzip -bso0 "../$zipname" "$inner"
+          fi)
+          rm -rf pkg
+          ls -1 ./*.zip
 
       - name: Generate checksums
         shell: bash
@@ -135,7 +168,7 @@ jobs:
           const target = process.env.SEA_TARGET;
           const lines = fs
             .readdirSync(dir)
-            .filter((f) => /^zcode-/.test(f))
+            .filter((f) => /^zcode-cli-.*\.zip$/.test(f))
             .sort()
             .map(
               (f) =>
@@ -150,7 +183,7 @@ jobs:
         with:
           name: zcode-cli-${{ matrix.target }}
           path: |
-            apps/zcode-cli/packages/cli/dist/zcode-*
+            apps/zcode-cli/packages/cli/dist/zcode-cli-*.zip
             apps/zcode-cli/packages/cli/dist/SHA256SUMS-${{ matrix.target }}.txt
           if-no-files-found: error
           retention-days: 14
@@ -160,61 +193,79 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # 全量历史：与 build job 独立解析同一份 fork 元数据（同一 SHA，结果必然一致），
+      # 保证 Release 标题、zip 资产名、二进制 --version 三处身份完全对应。
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
 
-      - name: Resolve version and check existing release
+      - name: Resolve version and fork metadata
+        # 解析逻辑与 build.mjs 的 parseGitDescribeToBuildMetadata 一致（语义由
+        # build.test.mjs 锚定）；异常直接失败，避免资产名与二进制身份不一致。
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          FORCE: ${{ inputs.force_release }}
         run: |
           VERSION=$(node -p "require('./package.json').version")
+          META=$(node -e '
+            const { execFileSync } = require("node:child_process");
+            const out = execFileSync("git", ["describe", "--tags", "--long", "--dirty"], { encoding: "utf8" }).trim();
+            const m = /^(.+?)-(\d+)-g([0-9a-f]+)(-dirty)?$/.exec(out);
+            if (!m) { console.error(`unexpected git describe output: ${out}`); process.exit(1); }
+            console.log(["cq", m[2], `g${m[3]}`, m[4] && "dirty"].filter(Boolean).join("."));
+          ')
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          if gh release view "zcode-cli-v$VERSION" > /dev/null 2>&1; then
-            if [ "$FORCE" = "true" ]; then
-              echo "SKIP_RELEASE=false" >> "$GITHUB_ENV"
-              gh release delete "zcode-cli-v$VERSION" --yes --cleanup-tag
-            else
-              echo "SKIP_RELEASE=true" >> "$GITHUB_ENV"
-              echo "Release zcode-cli-v$VERSION already exists — keeping artifacts on this run only."
-            fi
-          else
-            echo "SKIP_RELEASE=false" >> "$GITHUB_ENV"
-          fi
+          echo "META=$META" >> "$GITHUB_ENV"
 
-      - name: Create GitHub Release
-        if: env.SKIP_RELEASE == 'false'
+      - name: Create or refresh GitHub Release
+        # 固定单条 Release：标题/说明随每次构建刷新，资产先删后传整体替换，
+        # 页面上只有最新一份且文件名与本次构建一一对应（2026-10-21 裁决）。
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          TAG="zcode-cli-v$VERSION"
+          TITLE="zcode-cli v$VERSION · $META"
           cat > release-notes-body.md <<'NOTES'
           跨平台 zcode-cli 单文件构建（Node SEA，自带运行时，目标机器无需安装 Node）。
+          本 Release 的资产每次 push 整体替换为最新构建；历史构建见该 run 的 Actions artifacts（保留 14 天）。
 
           | 文件 | 平台 |
           |---|---|
-          | zcode-cli-linux-x64 | Linux x64 |
-          | zcode-cli-windows-x64.exe | Windows x64 |
-          | zcode-cli-darwin-x64 | macOS（Intel） |
-          | zcode-cli-darwin-arm64 | macOS（Apple Silicon） |
+          | zcode-cli-*-darwin-x64.zip | macOS（Intel） |
+          | zcode-cli-*-darwin-arm64.zip | macOS（Apple Silicon） |
+          | zcode-cli-*-linux-x64.zip | Linux x64 |
+          | zcode-cli-*-windows-x64.zip | Windows x64 |
 
-          安装：下载对应平台产物后改名 `zcode` 放入 PATH（如 `~/.local/bin`），`chmod +x` 即用。
-          macOS 首次运行被 Gatekeeper 拦截时：`xattr -d com.apple.quarantine ./zcode-cli-darwin-*`
+          安装：解压 zip 得到固定名 `zcode-cli`（Windows 为 `zcode-cli.exe`），改名 `zcode`
+          放入 PATH（如 `~/.local/bin`），`chmod +x` 即用；`zcode --version` 末尾的
+          `cq.<n>.g<sha>` 与 zip 文件名/Release 标题一致，用于确认拿到的是哪次构建。
+          macOS 首次运行被 Gatekeeper 拦截时：`xattr -d com.apple.quarantine ./zcode-cli`
           Windows SmartScreen 警告：二进制未做 Authenticode 签名，选「更多信息 → 仍要运行」。
-          校验和见各 SHA256SUMS-<target>.txt。
+          校验和见各 SHA256SUMS-<target>.txt（对象为对应 zip）。
           NOTES
           # 非官方构建声明置顶：明确产物来源与构建 commit（商标合规：nominative use）
           {
             printf '%s\n\n' "> ℹ️ 非官方构建：本产物由 fork [${GITHUB_REPOSITORY}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}) 的 CI 基于 [zai-org/ZCode](https://github.com/zai-org/ZCode)（Apache-2.0）源码自动编译，与智谱官方无关。构建来源 commit：\`${GITHUB_SHA}\`"
             cat release-notes-body.md
           } > release-notes.md
-          gh release create "zcode-cli-v$VERSION" \
-            artifacts/zcode-* \
-            artifacts/SHA256SUMS-*.txt \
-            --title "zcode-cli v$VERSION" \
-            --notes-file release-notes.md
+
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release edit "$TAG" --title "$TITLE" --notes-file release-notes.md
+            # 先删全部旧资产再上传：文件名带构建身份，不清会跨构建累积
+            while IFS= read -r name; do
+              [ -n "$name" ] && gh release delete-asset "$TAG" "$name" --yes
+            done < <(gh release view "$TAG" --json assets --jq '.assets[].name')
+            gh release upload "$TAG" artifacts/zcode-cli-*.zip artifacts/SHA256SUMS-*.txt --clobber
+          else
+            gh release create "$TAG" \
+              artifacts/zcode-cli-*.zip \
+              artifacts/SHA256SUMS-*.txt \
+              --title "$TITLE" \
+              --notes-file release-notes.md
+          fi

@@ -54,6 +54,27 @@ help、telemetry `cliVersion`）零改动——版本号在 CLI/TUI 全链路只
 - `buildCli` 内部把 `await version` 换成 `resolveForkCliVersion({ baseVersion: await version })`，
   对外签名不变。
 
+## Release 打包与发版语义（2026-10-21 第二轮裁决）
+
+用户裁决：zip 打包、包内固定名、固定单条 Release。规则：
+
+1. **zip 是唯一发行形态**：`zcode-cli-<根版本>-<fork元数据>-<target>.zip`（如
+   `zcode-cli-3.16.2-cq.11.gf269ecf0-darwin-x64.zip`）；**包内可执行文件名恒定**
+   `zcode-cli`（Windows: `zcode-cli.exe`）——安装路径与脚本不随构建漂移，身份由
+   zip 文件名 + 二进制 `--version` 双重承载。
+2. **tag 恒为 `zcode-cli-v<根版本>`**，每个版本只有一条 Release；每次 push 刷新
+   标题（`zcode-cli v<版本> · <元数据>`）与说明（构建 commit 随之更新），资产
+   先删后传整体替换——页面上只有最新一份且文件名与本次构建一一对应。旧构建经
+   Actions run artifacts 回溯（保留 14 天）。
+3. **元数据一致性**：build job（注入 `__CLI_VERSION__`）与打包/release job 独立
+   解析同一 SHA + 全量历史，结果必然一致；workflow 内的解析逻辑须与
+   `build.mjs` 的 `parseGitDescribeToBuildMetadata` 保持同步（语义由
+   `build.test.mjs` 锚定）。workflow 侧解析异常直接 fail——资产名与二进制身份
+   不一致比构建失败更糟（与规则 4 的"本地不挡构建"不同：CI 有全量历史，
+   describe 失败说明流程假设已破）。
+4. **force_release input 移除**：固定 Release 语义下每次 push 都刷新资产，
+   "强制覆盖"开关失去存在意义；`workflow_dispatch` 保留为手动重跑入口。
+
 ## Non-goals
 
 - 不改 `apps/zcode-cli/package.json` 的 version 字段语义（继续与上游同步）。
@@ -77,3 +98,9 @@ help、telemetry `cliVersion`）零改动——版本号在 CLI/TUI 全链路只
    `0.17.0+cq.dev.g<sha>`（本地实证 `f269ecf0`），构建不报错。
 6. CI 产物（release-cli run artifacts）内的二进制 `--version` 含 `cq.<n>.g<sha>`；
    push 触发的 run 由 CI 日志/产物验证（主分支 push 即生效）。
+7. CI run 产物为 4 个 zip + 4 个 `SHA256SUMS-<target>.txt`（校验对象是 zip）；
+   Release `zcode-cli-v3.16.2` 标题带同元数据，资产整体替换无旧残留（连续两次
+   push 后页面上只有第二次的 zip）。zip 内为固定名 `zcode-cli`/`zcode-cli.exe`。
+8. 本地模拟打包逻辑实证（2026-10-21）：zip 命名、包内文件名、执行位、校验和
+   内容与规则一致；workflow 侧 META 解析输出与 `build.mjs` 的
+   `parseGitDescribeToBuildMetadata` 对同一 describe 输入结果一致。
