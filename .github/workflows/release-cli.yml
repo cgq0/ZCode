@@ -56,7 +56,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
+      # 必须全量历史 + tag：__CLI_VERSION__ 构建时跑 git describe 生成
+      # `+cq.<n>.g<sha>` fork 标识（见 spec 2026-10-21-fork-build-metadata-version-identity），
+      # 默认浅克隆无 tag 会让产物退化成 cq.dev.g<sha>，丢失领先 tag 的提交距离。
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # pnpm 版本取自根 package.json 的 packageManager 字段（10.33.2）
       - uses: pnpm/action-setup@v4

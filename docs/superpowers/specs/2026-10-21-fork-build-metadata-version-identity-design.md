@@ -35,6 +35,14 @@ help、telemetry `cliVersion`）零改动——版本号在 CLI/TUI 全链路只
 5. **base 已残留 `+` metadata 时整体重建**，不叠加多段；metadata 经
    `[0-9A-Za-z-.]` 白名单校验，异常 tag 解析出脏数据按失败走回退。
 6. dev 构建、`--desktop-agent`、SEA 三条路径同走 `buildCli`，自动继承，无旁路注入点。
+7. **CI 构建必须 `fetch-depth: 0`**：`actions/checkout@v4` 默认浅克隆且不带 tag，
+   `git describe` 会失败（2026-10-21 本地浅克隆实证：`No names found`），产物退化为
+   `cq.dev.g<sha>`（SHA 仍可追溯但丢失领先 tag 的提交距离）。`release-cli.yml` 的
+   build job checkout 显式取全量历史 + tag，距离字段才成立。release job 的 checkout
+   只跑 gh release 命令，不需要改。
+8. **dev 分支保持零 CI**：workflow 触发只有 `push: main` + `workflow_dispatch`，dev
+   推送天然静默（fork 有意为之，2026-10-21 用户裁决）；将来 dev 上若出现任何
+   workflow 触发配置都视为偏离本规则。
 
 ## Interfaces
 
@@ -65,3 +73,7 @@ help、telemetry `cliVersion`）零改动——版本号在 CLI/TUI 全链路只
 4. 既有 `tests/build.test.mjs` 14/14 全绿（含新增 2 用例）；cli oxlint 0/0、oxfmt 干净、
    `architecture:check --changed` 0 违规；typecheck 不涉及（tsconfig 仅含 `src/**/*`，
    本次纯 `.mjs`）。
+5. 浅克隆回退：`git clone --depth 1 --no-tags` 的检出里 describe 失败，产物版本为
+   `0.17.0+cq.dev.g<sha>`（本地实证 `f269ecf0`），构建不报错。
+6. CI 产物（release-cli run artifacts）内的二进制 `--version` 含 `cq.<n>.g<sha>`；
+   push 触发的 run 由 CI 日志/产物验证（主分支 push 即生效）。
