@@ -51,6 +51,94 @@ describe("EventReducer", () => {
       expect(projection.contextWindow).toBe(200000);
     });
 
+    it("should not fabricate a context window before any event", () => {
+      const projection = reducer.reduce([]);
+      expect(projection.contextWindow).toBeUndefined();
+    });
+
+    it("should apply model_selected context window to the projection", () => {
+      const events: SessionEvent[] = [
+        createSessionEvent(SessionEventType.SessionCreated, sessionId, {
+          mode: "build",
+          contextWindow: 200000,
+        }),
+        createSessionEvent(SessionEventType.ModelSelected, sessionId, {
+          modelSelection: {
+            providerId: "account:bigmodel-individual-coding-plan",
+            modelId: "GLM-5.3-Flash",
+          },
+          contextWindow: 1_000_000,
+        }),
+      ];
+
+      const projection = reducer.reduce(events);
+      expect(projection.contextWindow).toBe(1_000_000);
+    });
+
+    it("should seed an unknown context window from model_selected in a live session", () => {
+      // 活跃会话没有 session_created 播种；首轮 model_selected 是分母的唯一来源。
+      const events: SessionEvent[] = [
+        createSessionEvent(SessionEventType.ModelSelected, sessionId, {
+          modelSelection: {
+            providerId: "account:bigmodel-individual-coding-plan",
+            modelId: "GLM-5.3-Flash",
+          },
+          contextWindow: 1_000_000,
+        }),
+      ];
+
+      const projection = reducer.reduce(events);
+      expect(projection.contextWindow).toBe(1_000_000);
+    });
+
+    it("should keep the existing context window when model_selected omits it", () => {
+      // 旧事件与冷恢复合成事件（transcript hydration）不携带该字段；缺失＝不覆盖。
+      const events: SessionEvent[] = [
+        createSessionEvent(SessionEventType.SessionCreated, sessionId, {
+          mode: "build",
+          contextWindow: 200000,
+        }),
+        createSessionEvent(SessionEventType.ModelSelected, sessionId, {
+          modelSelection: { providerId: "p", modelId: "m" },
+        }),
+      ];
+
+      const projection = reducer.reduce(events);
+      expect(projection.contextWindow).toBe(200000);
+    });
+
+    it("should clear the context window on explicit null in model_selected", () => {
+      const events: SessionEvent[] = [
+        createSessionEvent(SessionEventType.SessionCreated, sessionId, {
+          mode: "build",
+          contextWindow: 200000,
+        }),
+        createSessionEvent(SessionEventType.ModelSelected, sessionId, {
+          modelSelection: { providerId: "p", modelId: "m" },
+          contextWindow: null,
+        }),
+      ];
+
+      const projection = reducer.reduce(events);
+      expect(projection.contextWindow).toBeUndefined();
+    });
+
+    it("should update the context window when the selection switches models", () => {
+      const events: SessionEvent[] = [
+        createSessionEvent(SessionEventType.ModelSelected, sessionId, {
+          modelSelection: { providerId: "p", modelId: "m1" },
+          contextWindow: 1_000_000,
+        }),
+        createSessionEvent(SessionEventType.ModelSelected, sessionId, {
+          modelSelection: { providerId: "p", modelId: "m2" },
+          contextWindow: 200_000,
+        }),
+      ];
+
+      const projection = reducer.reduce(events);
+      expect(projection.contextWindow).toBe(200_000);
+    });
+
     it("should apply session_mode_changed event", () => {
       const events: SessionEvent[] = [
         createSessionEvent(SessionEventType.SessionCreated, sessionId, {

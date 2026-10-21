@@ -8,7 +8,7 @@ import {
   submitDuringActiveTurn,
   submitIdleTurn,
 } from "../src/app-submit.js";
-import type { Message, ModifiedFileStat, QueuedInput } from "../src/app-model.js";
+import type { ContextUsage, Message, ModifiedFileStat, QueuedInput } from "../src/app-model.js";
 import type { TuiOptions, TuiSubmitPromptResult } from "../src/types.js";
 
 test("does not render streamed tool input JSON as assistant text", () => {
@@ -476,6 +476,60 @@ test("updates the model projection from model selected events", () => {
   assert.equal(state.model, "gateway/openai/gpt-5.5");
 });
 
+test("updates the badge denominator from model_selected context window", () => {
+  const state = createSessionEventState();
+
+  state.apply(
+    sessionEvent(SessionEventType.ModelSelected, {
+      modelSelection: {
+        modelId: "GLM-5.3-Flash",
+        providerId: "account:bigmodel-individual-coding-plan",
+      },
+      contextWindow: 1_000_000,
+    }),
+  );
+
+  assert.equal(state.contextUsage.contextWindow, 1_000_000);
+});
+
+test("missing model_selected context window keeps the previous denominator", () => {
+  const state = createSessionEventState();
+  state.apply(
+    sessionEvent(SessionEventType.ModelSelected, {
+      modelSelection: { modelId: "m1", providerId: "p" },
+      contextWindow: 1_000_000,
+    }),
+  );
+
+  // 旧事件/冷恢复合成事件不携带该字段；缺失＝不覆盖。
+  state.apply(
+    sessionEvent(SessionEventType.ModelSelected, {
+      modelSelection: { modelId: "m2", providerId: "p" },
+    }),
+  );
+
+  assert.equal(state.contextUsage.contextWindow, 1_000_000);
+});
+
+test("explicit null model_selected context window clears the denominator", () => {
+  const state = createSessionEventState();
+  state.apply(
+    sessionEvent(SessionEventType.ModelSelected, {
+      modelSelection: { modelId: "m1", providerId: "p" },
+      contextWindow: 1_000_000,
+    }),
+  );
+
+  state.apply(
+    sessionEvent(SessionEventType.ModelSelected, {
+      modelSelection: { modelId: "m2", providerId: "p" },
+      contextWindow: null,
+    }),
+  );
+
+  assert.equal(state.contextUsage.contextWindow, undefined);
+});
+
 test("aggregates current-session modified files from file diff displays", () => {
   const state = createSessionEventState("/workspace/project");
   const display = {
@@ -532,6 +586,7 @@ function createSessionEventState(workspaceDirectory?: string): {
   setMessages: (updater: Message[] | ((current: Message[]) => Message[])) => void;
   setQueuedInputs: (updater: QueuedInput[] | ((current: QueuedInput[]) => QueuedInput[])) => void;
   status: string;
+  contextUsage: ContextUsage;
 } {
   const state: {
     lastError: string | undefined;
@@ -541,6 +596,7 @@ function createSessionEventState(workspaceDirectory?: string): {
     modifiedFiles: ModifiedFileStat[];
     queuedInputs: QueuedInput[];
     status: string;
+    contextUsage: ContextUsage;
   } = {
     lastError: undefined,
     liveModelText: "",
@@ -549,6 +605,7 @@ function createSessionEventState(workspaceDirectory?: string): {
     modifiedFiles: [],
     queuedInputs: [],
     status: "",
+    contextUsage: {},
   };
   const assistantMessageIdsByToolCallId = new Map<string, string>();
   const modifiedFileToolCallIds = new Set<string>();
@@ -559,7 +616,10 @@ function createSessionEventState(workspaceDirectory?: string): {
         assistantMessageIdsByToolCallId,
         setActiveTurnId: () => {},
         setCacheStats: () => {},
-        setContextUsage: () => {},
+        setContextUsage: (updater) => {
+          state.contextUsage =
+            typeof updater === "function" ? updater(state.contextUsage) : updater;
+        },
         setLastError: (message) => {
           state.lastError = message;
         },
@@ -621,6 +681,9 @@ function createSessionEventState(workspaceDirectory?: string): {
     },
     set status(nextStatus: string) {
       state.status = nextStatus;
+    },
+    get contextUsage() {
+      return state.contextUsage;
     },
   };
 }

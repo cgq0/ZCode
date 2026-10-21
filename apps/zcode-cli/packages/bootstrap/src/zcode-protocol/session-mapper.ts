@@ -543,7 +543,9 @@ export function mapSessionProjection(projection: SessionProjection): ZCodeSessio
     activeToolCalls: projection.activeToolCalls.map(mapActiveToolCall),
     backgroundJobs: projection.backgroundTasks.map(mapBackgroundTask),
     contextUsed: projection.contextUsed,
-    contextWindow: projection.contextWindow,
+    // wire 契约要求非负整数；投影窗口未知（首轮 model_selected 到达前）以 0 表达，
+    // 消费端（桌面 contextUsageFromProjection 等）既有 <= 0 即未知的守卫。
+    contextWindow: projection.contextWindow ?? 0,
     currentTurnId: projection.currentTurnId ? String(projection.currentTurnId) : undefined,
     lastError: projection.lastError,
     mode: projection.mode,
@@ -720,22 +722,25 @@ function contextUsageFromProjection(
   projection: SessionProjection,
   cache: ZCodeSessionContextUsage["cache"] | undefined,
 ): ZCodeSessionContextUsage | undefined {
-  if (projection.contextUsed <= 0 || projection.contextWindow <= 0) {
+  const contextWindow = projection.contextWindow;
+  // 窗口未知（缺席）时不能放行：原 `<= 0` 守卫对 undefined 是 NaN 比较恒 false，
+  // 会把 undefined 塞进 size 违反 wire schema 的 positive 整数约束。
+  if (projection.contextUsed <= 0 || contextWindow === undefined || contextWindow <= 0) {
     return undefined;
   }
   return {
     ...(cache ? { cache } : {}),
     cost: null,
-    size: projection.contextWindow,
+    size: contextWindow,
     used: projection.contextUsed,
   };
 }
 
 function contextUsageFromPersistedMessages(
   messages: readonly MessageWithParts[],
-  contextWindow: number,
+  contextWindow: number | undefined,
 ): ZCodeSessionContextUsage | undefined {
-  if (contextWindow <= 0) {
+  if (contextWindow === undefined || contextWindow <= 0) {
     return undefined;
   }
   const cache = contextCacheUsageFromMessages(messages);
@@ -856,9 +861,7 @@ function contextCacheUsageFromMessages(
   };
 }
 
-function mapPendingPermission(
-  permission: PendingPermission,
-): ZCodePendingPermission {
+function mapPendingPermission(permission: PendingPermission): ZCodePendingPermission {
   // display / optionsPolicy 刻意不进 legacy v3 输出。
   // 根因不是"扩 schema 只能单向兼容"，而是 strict schema 随 packages/shared 打进每个桌面端
   // 的产物：今天把 zcodePendingPermissionSchema（shared/src/zcode-protocol/index.ts:1139）和
@@ -885,9 +888,7 @@ function mapPendingPermission(
   };
 }
 
-function mapPermissionRequestedPayload(
-  payload: unknown,
-): Record<string, unknown> {
+function mapPermissionRequestedPayload(payload: unknown): Record<string, unknown> {
   // 同 mapPendingPermission：这个 payload 是整体 spread 出去的，新字段必须在这里显式解构
   // 剔除，否则会直接漏进 strict 的 zcodePermissionRequestedEventPayloadSchema。
   const { display: _display, optionsPolicy, ...record } = asRecord(payload);
@@ -1114,7 +1115,8 @@ function buildGoalStats(
   );
   return {
     contextUsed: projection.contextUsed,
-    contextWindow: projection.contextWindow,
+    // 同 mapSessionProjection：wire 要求非负整数，未知窗口以 0 表达。
+    contextWindow: projection.contextWindow ?? 0,
     // goal 轮次只能由 verifier 生命周期边界推进；用户消息、TodoWrite
     // 或手动继续都只是落入当前打开轮次，不能单独开新轮。
     iterationCount: activeIterationCount,

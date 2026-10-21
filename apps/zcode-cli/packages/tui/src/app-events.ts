@@ -101,7 +101,12 @@ export function applySessionEventToState(
       handlers.setStatus(copy.status.modelCalling);
       break;
     case SessionEventType.ModelSelected:
-      applyModelSelectedEvent(payload, handlers.setModel, handlers.setThoughtLevel);
+      applyModelSelectedEvent(
+        payload,
+        handlers.setModel,
+        handlers.setThoughtLevel,
+        handlers.setContextUsage,
+      );
       break;
     case SessionEventType.ModelStreaming:
       applyModelStreamingEvent(payload, {
@@ -287,6 +292,7 @@ function applyModelSelectedEvent(
   payload: Record<string, unknown>,
   setModel: (model: string) => void,
   setThoughtLevel?: (level: string) => void,
+  setContextUsage?: React.Dispatch<React.SetStateAction<ContextUsage>>,
 ): void {
   const modelSelection = asRecord(payload.modelSelection);
   const providerId = stringField(modelSelection, "providerId");
@@ -297,6 +303,14 @@ function applyModelSelectedEvent(
   if (!modelId) return;
   setModel(providerId ? `${providerId}/${modelId}` : modelId);
   setThoughtLevel?.(stringField(asRecord(modelSelection.options), "reasoningLevel") ?? "");
+  if (!setContextUsage) return;
+  // 徽标分母与投影 reducer 同语义：正数＝权威窗口；null＝显式清除；缺失＝旧事件不覆盖。
+  // 不能用 numberField：它把 null 归并成 undefined，会丢失显式清除语义。
+  const rawContextWindow = payload.contextWindow;
+  if (rawContextWindow === undefined) return;
+  const contextWindow =
+    typeof rawContextWindow === "number" && rawContextWindow > 0 ? rawContextWindow : undefined;
+  setContextUsage((current) => ({ ...current, contextWindow }));
 }
 
 function applyModelCompleteEvent(

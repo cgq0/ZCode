@@ -30,7 +30,8 @@ export const initialSessionProjection = {
   turnCount: 0,
   totalTokenCount: 0,
   contextUsed: 0,
-  contextWindow: 200000,
+  // contextWindow 刻意缺席：活跃会话的窗口事实只能由 model_selected 事件带入
+  // （session_created 仅冷恢复播种），伪造 200000 分母曾让徽标百分比整体失真。
   pendingPermissions: [] as PendingPermission[],
   pendingSteerInputs: [] as PendingSteerInputInfo[],
   activeToolCalls: [] as ActiveToolCall[],

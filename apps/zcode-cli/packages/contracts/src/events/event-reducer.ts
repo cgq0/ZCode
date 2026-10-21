@@ -25,6 +25,7 @@ import type {
   PermissionResolvedPayload,
   PermissionDeniedPayload,
   ModelCompletePayload,
+  ModelSelectedPayload,
   SessionModeChangedPayload,
   TargetChangedPayload,
   TargetCompletionVerificationPayload,
@@ -105,6 +106,24 @@ export class EventReducer {
         createdAt: e.timestamp,
         updatedAt: e.timestamp,
         status: "idle" as SessionStatus,
+      };
+    },
+
+    [EventTypes.ModelSelected]: (p, e) => {
+      const payload = e.payload as ModelSelectedPayload;
+      // 活跃会话没有 session_created 播种，窗口事实只能由选型事件携带（与 v4
+      // onModelSelected 同一语义）：正数＝权威窗口；null＝显式清除回未知；
+      // 缺失＝旧事件/冷恢复合成事件，不得覆盖既有事实，更不能回退到任何默认值。
+      if (payload.contextWindow === undefined) {
+        return { ...p, updatedAt: e.timestamp };
+      }
+      return {
+        ...p,
+        contextWindow:
+          payload.contextWindow !== null && payload.contextWindow > 0
+            ? payload.contextWindow
+            : undefined,
+        updatedAt: e.timestamp,
       };
     },
 

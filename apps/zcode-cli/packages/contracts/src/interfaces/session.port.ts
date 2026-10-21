@@ -99,7 +99,8 @@ export interface SessionProjection {
   turnCount: number;
   totalTokenCount: number;
   contextUsed: number;
-  contextWindow: number;
+  /** 注册表声明的模型上下文窗口；未知时缺席（首轮 model_selected 到达前、显式清除后）。 */
+  contextWindow?: number;
   pendingPermissions: PendingPermission[];
   pendingSteerInputs: PendingSteerInputInfo[];
   activeToolCalls: ActiveToolCall[];
