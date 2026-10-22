@@ -16,7 +16,9 @@ cgq0/
 │   ├── plan/            # 批次计划：YYYY-MM-DD-<序号>-<主题>.md
 │   └── tmp/             # 临时文件（gitignored，永不入仓）：长跑日志、消息草稿、下载缓存
 └── scripts/
-    └── ai-commit.sh     # 带 X-AI 署名 trailer 的 commit 包装器（本 fork 的唯一 commit 入口）
+    ├── ai-commit.sh       # 带 X-AI 署名 trailer 的 commit 包装器（本 fork 的唯一 commit 入口）
+    ├── mem-watch.sh       # 采样 zcode-cli 进程内存（RSS + phys_footprint），append 到 tmp/ 日志
+    └── heap-snapshot.mjs  # 对已开 inspector 的进程远程取 V8 堆快照（配合 mem-watch 定位泄漏面）
 ```
 
 ## commit 规则（强制）
@@ -58,6 +60,27 @@ cgq0/scripts/ai-commit.sh --amend -F <消息文件>   # 修补
 - 理由：`/tmp` 在项目 cwd 之外，harness（pi）的权限管理系统会逐次拦截项目外路径，长跑任务会卡在人工放行上。
 - `cgq0/tmp/` 没有备份承诺，可随时整目录清空；唯一副本不放这里。
 
+## 取证脚本：zcode-cli 内存占用（2026-10-23 起）
+
+内存泄露已退出 TODO，转为**事件驱动取证**：下次 zcode-cli 内存占用异常增大时，按下面
+两步采样，拿到数据后**开新会话讨论分析**，不在当时的主会话里纠缠。
+
+```sh
+# 1) 先采样：立刻对目标进程跑（进程别退），跑几分钟 Ctrl-C 停止
+sh cgq0/scripts/mem-watch.sh <pid> [间隔秒，默认10]
+#    产物: cgq0/tmp/mem-watch-<pid>.log（RSS/VSZ/phys_footprint 时间线）
+
+# 2) 若 footprint 持续暴涨，取堆快照切分泄漏面
+kill -USR1 <pid>                    # Node/SEA 进程收到 SIGUSR1 会在 127.0.0.1:9229 开 inspector
+node cgq0/scripts/heap-snapshot.mjs # 产物: cgq0/tmp/heap-<id>-<ts>.heapsnapshot
+```
+
+判读口径：堆快照正常（几十~几百 MB）而 phys_footprint 爆炸 → 堆外泄漏（Buffer/WASM/
+原生）；堆快照同样膨胀 → 堆内泄漏，把 .heapsnapshot 拖进 Chrome DevTools Memory 看
+retainers。历史上下文（21.6GB 实锤、显示层修复 87a2c2c4、堆外降级观察）见
+docs/diary/2026-10-21.mac.md 09:08 与 12:40 条目。注意：脚本只能对 SEA 二进制或
+node 直启的进程用（桌面 App 的 zcode-cli 子进程同样是 SEA，可直接用）。
+
 ## 决策记录
 
 fork 级"为什么这么做"的决策，新的加在最下面：
@@ -68,3 +91,4 @@ fork 级"为什么这么做"的决策，新的加在最下面：
 | 2026-10-20 | 日记机器别名固定用平台名 `mac`/`win`/`lin` | 主机名属于基础设施指纹。平台名定位文件已足够，不泄露硬件型号/网络信息，也无需维护脱敏映射表 |
 | 2026-10-20 | commit 署名用包装器脚本而非 git hooks | 上游 husky 独占 `core.hooksPath` 且每次 `pnpm install` 重置；往 `.husky/` 加钩子文件会污染上游文件树。包装器纯 `cgq0/` 内，merge 无感，代价是纪律（所有 commit 走脚本） |
 | 2026-10-20 | 临时文件收进 `cgq0/tmp/` 而非 `/tmp/` | `/tmp` 在项目 cwd 之外，pi 的权限管理系统逐次拦截项目外路径；gitignored 的仓内目录同样即用即弃，但权限零摩擦 |
+| 2026-10-23 | 内存泄露观察项退出 TODO，转事件驱动取证：脚本收进 `scripts/`、用法进本 README、触发时跑脚本再开新会话分析 | 泄露不可复现、挂 TODO 只会空转；把「下次遇到怎么办」沉淀成脚本+文档，比一行待办可执行 |
