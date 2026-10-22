@@ -33,10 +33,11 @@ import { modelDisplayParts } from "../src/app-model-ref.js";
 
 const TEST_STATUS_PROPS = { model: "default-deepseek/deepseek-v4-pro", thoughtLevel: "max" };
 
-test("prompt textarea binds Enter to submit, Ctrl+J (bare linefeed) to newline", () => {
+test("prompt textarea binds Enter to submit, Ctrl+J (both encodings) to newline", () => {
   assert.deepEqual(PROMPT_TEXTAREA_KEY_BINDINGS, [
     { name: "return", action: "submit" },
     { name: "linefeed", action: "newline" },
+    { name: "j", ctrl: true, action: "newline" },
     { name: "return", shift: true, action: "newline" },
   ]);
 });
@@ -339,6 +340,58 @@ test("Ctrl+J (bare linefeed bytes) inserts a newline without submitting", async 
     });
 
     assert.equal(inputs.at(-1), "hello\nworld");
+    assert.deepEqual(submitted, []);
+  } finally {
+    await act(async () => {
+      view?.renderer.destroy();
+    });
+  }
+});
+
+// iTerm2 等响应键盘增强序列的终端把 Ctrl+J 编码上报（kitty CSI-u 或 XTMODKEYS 形式），
+// opentui 解析为 { name: "j", ctrl: true }，必须由显式绑定覆盖，否则整键被吞。
+test("Ctrl+J (enhanced keyboard encoding) inserts a newline without submitting", async () => {
+  const inputs: string[] = [];
+  const submitted: string[] = [];
+  let view: Awaited<ReturnType<typeof testRender>> | undefined;
+
+  await act(async () => {
+    view = await testRender(
+      React.createElement(InputPane, {
+        busy: false,
+        focused: true,
+        ...TEST_STATUS_PROPS,
+        onInput: (value) => {
+          inputs.push(value);
+        },
+        onSubmit: (value) => {
+          submitted.push(value);
+        },
+        resetCursorToEndVersion: 0,
+        value: "",
+      }),
+      {
+        height: 12,
+        kittyKeyboard: true,
+        otherModifiersMode: true,
+        width: 50,
+      },
+    );
+    await view.renderOnce();
+  });
+
+  try {
+    await act(async () => {
+      assert.ok(view);
+      await view.mockInput.typeText("hello");
+      // pressKey 走 mock 的 kitty 编码器，复现 iTerm2 的 CSI-u 上报路径。
+      view.mockInput.pressKey("j", { ctrl: true });
+      await view.mockInput.pressKeys(["\x1b[27;5;106~"]);
+      await view.mockInput.typeText("world");
+      await view.renderOnce();
+    });
+
+    assert.equal(inputs.at(-1), "hello\n\nworld");
     assert.deepEqual(submitted, []);
   } finally {
     await act(async () => {

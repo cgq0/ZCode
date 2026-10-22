@@ -31,11 +31,14 @@ export const INPUT_PANE_STATUS_SPACER_STYLE = {
   minHeight: 0,
 } as const;
 
-// Ctrl+J 在终端发裸 LF(0x0A)，opentui 解析为不带 ctrl 位的 linefeed，无法与
-// 裸 LF 区分；linefeed 必须保持换行（对齐主流 TUI），submit 只走 return(CR) 路径。
+// Ctrl+J 有两种到达形态：终端忽略键盘增强序列时发裸 LF(0x0A)，opentui 解析为不带
+// ctrl 位的 linefeed（legacy 下与裸 LF 不可区分）；iTerm2 等响应增强序列（本应用启动时
+// 发 modifyOtherKeys=1 / kitty 查询）的终端会把 Ctrl+J 编码上报，解析为 { j, ctrl }。
+// 两条形态都必须换行（对齐主流 TUI），submit 只走 return(CR) 路径。
 export const PROMPT_TEXTAREA_KEY_BINDINGS = [
   { name: "return", action: "submit" },
   { name: "linefeed", action: "newline" },
+  { name: "j", ctrl: true, action: "newline" },
   { name: "return", shift: true, action: "newline" },
 ] as const;
 

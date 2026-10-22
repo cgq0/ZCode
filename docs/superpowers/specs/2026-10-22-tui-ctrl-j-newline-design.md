@@ -70,3 +70,59 @@ Enter (CR 0x0D)
 - 同文件交互用例（`"Shift+Enter inserts a newline while Enter submits…"` 附近）补一条：
   模拟发送 `"\n"` sequence，断言不触发 submit 且 textarea 文本新增换行。
 - tui 包测试是 **node:test**（`pnpm test` = `tsx --test tests/*.test.ts`），不是 vitest。
+
+---
+
+# 后续：增强编码路径的 Ctrl+J（2026-10-22 晚补充）
+
+## 问题
+
+`cq.23.g83965317` 版本在 iTerm2 3.6.6 里 Ctrl+J 仍无任何反应（不换行、不提交），
+而 Terminal.app（原生"终端"）里同一二进制换行正常。用户实测确认。
+
+## 根因（已实测取证，非猜测）
+
+上面的修复只覆盖了 **legacy 字节路径**。但 TUI 启动时会向终端发送键盘增强序列：
+`CSI > 4;1m`（modifyOtherKeys=1）与 `CSI ? u`（kitty 协议查询；只查询、从不 push）。
+终端对增强序列的应答与否，决定 Ctrl+J 的到达形态：
+
+```text
+Terminal.app（忽略增强序列）：
+  Ctrl+J → 裸 LF(0x0A) → parser { name: "linefeed" } → linefeed → newline ✓
+
+iTerm2 3.6.6（响应增强序列）：
+  Ctrl+J → CSI 106;5u（kitty 形式）或 CSI 27;5;106~（XTMODKEYS 形式）
+    → parser 解码为 { name: "j", ctrl: true }
+      （StdinParser 默认 useKittyKeyboard: true；modifyOtherKeys 分支同样归到 j+ctrl）
+    → 绑定表无 "j:1:0:0:0" 条目（OpenTUI 匹配键为 name:ctrl:shift:meta:super
+      精确串）→ 整键被吞 ✗
+```
+
+取证：真实二进制 pty 注入 `CSI 106;5u`，落库消息正文 `"abcdef"`（键被吞）；
+裸 `0x0A` 对照组落库 `"abc\ndef"`（换行正常）。
+
+这不是 iTerm2 的 bug：协议里增强编码的目的恰恰就是把 Ctrl+J 从 Enter/LF 中消歧。
+是 TUI 请求了增强编码却没处理增强编码下的键名。
+
+## 设计
+
+- `PROMPT_TEXTAREA_KEY_BINDINGS` 增加 `{ name: "j", ctrl: true, action: "newline" }`。
+  legacy 路径下 Ctrl+J 永远解析为 `linefeed`（无 ctrl 位），此条目为死键不误伤；
+  两种增强形式（kitty / XTMODKEYS）都归到 `{j, ctrl}`，一条覆盖。
+  普通字母 `j` 匹配键为 `"j:0:0:0:0"`，与新条目 `"j:1:0:0:0"` 不相交，输入不受影响。
+- **不关闭增强序列**（不给 opentui 传 useKittyKeyboard: false / 不去掉 modifyOtherKeys）：
+  iTerm2 下 Shift+Enter 与 Enter 的区分正依赖增强编码，关掉会引入回归。
+
+## 验收场景（增量）
+
+1. iTerm2（增强编码生效）：Ctrl+J 在光标处插入换行，不提交。
+2. Terminal.app（legacy）：Ctrl+J 行为不变（换行）。
+3. 普通输入 `j` 字符照常上屏。
+4. Enter 提交、Shift+Enter 换行在两种终端均不变。
+
+## 回归证据（增量）
+
+- 绑定数组 `deepEqual` 断言加入新条目。
+- 交互用例：`pressKey("j", { ctrl: true })`（走 mock 的 kitty 编码器，复现 iTerm2 路径）
+  断言不触发 submit、文本插入换行；`pressKeys` 直发 `CSI 27;5;106~` 覆盖 XTMODKEYS 形式。
+- 真实 TUI pty 冒烟（tsx 跑源码）：注入 `\x1b[106;5u`，落库正文含换行。
