@@ -22,7 +22,14 @@ export type TuiContextUsage = Pick<SessionProjection, "contextUsed" | "contextWi
 
 export type TuiSessionMetadata = Pick<
   TuiSubmitPromptResult,
-  "locale" | "model" | "theme" | "thoughtLevel" | "modelOptions" | "effortOptions" | "loginRequired"
+  | "locale"
+  | "model"
+  | "theme"
+  | "thoughtLevel"
+  | "modelOptions"
+  | "effortOptions"
+  | "loginRequired"
+  | "projection"
 >;
 
 export type TuiSwitchableMode = Extract<
@@ -340,6 +347,8 @@ export type TuiOptions = {
   subscribeThemeMode?: (listener: (mode: UiThemeMode) => void) => () => void;
   setTerminalBackgroundColor?: (color: string) => void;
   writeClipboardText?: TuiWriteClipboardText;
+  /** 启动/重置时的权威源播种（分母注册表、分子 runtime 投影）；事件仍是唯一权威。 */
+  contextUsage?: Partial<TuiContextUsage>;
 };
 
 export type TuiStartupOptions = Pick<
@@ -354,4 +363,5 @@ export type TuiStartupOptions = Pick<
   | "effortOptions"
   | "slashCommands"
   | "workspaceGitBranch"
+  | "contextUsage"
 >;

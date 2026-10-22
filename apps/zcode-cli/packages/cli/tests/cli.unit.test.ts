@@ -25,6 +25,7 @@ import type { RunContext } from "@zcode/shared-types";
 import type { TuiOptions } from "@zcode/tui";
 import { run } from "../src/run.js";
 import { createTuiSubmitPrompt } from "../src/tui-prompt-handler.js";
+import { readTuiSessionMetadata } from "../src/tui-prompt-handler-queries.js";
 import {
   buildManualSkillPrompt,
   createCommandCenter,
@@ -3555,6 +3556,7 @@ test("command center starts a new session without sending a model prompt", async
       return {
         sessionId: "sess_new",
         traceId: "trace-new",
+        getCurrentModelOption: () => ({ contextWindow: 1_000_000 }) as never,
         resume: async () => {
           throw new Error("resume should not run");
         },
@@ -3577,7 +3579,66 @@ test("command center starts a new session without sending a model prompt", async
   assert.equal(result.sessionId, "sess_new");
   assert.equal(result.traceId, "trace-new");
   assert.equal(result.resetSessionProjection, true);
+  // 全新会话播种 0 (0%)：分母=注册表窗口；与 reset 同条 result，靠 TUI 先清后种存活。
+  assert.deepEqual(result.projection, { contextUsed: 0, contextWindow: 1_000_000 });
   assert.match(result.response, /Started new session sess_new/);
+});
+
+test("command center resumes with a projection seed from the app context usage", async () => {
+  const submitPrompt = createCommandCenter({
+    getApp: async () => {
+      throw new Error("app should not be created");
+    },
+    getMode: () => "build",
+    resumeApp: async () =>
+      ({
+        sessionId: "sess_old",
+        traceId: "trace-old",
+        getContextUsage: async () => ({ contextUsed: 152_200, contextWindow: 1_000_000 }),
+        resume: async () => ({
+          appliedMessageCount: 0,
+          directory: "/workspace",
+          interruptedToolCount: 0,
+          messageCount: 12,
+          partCount: 30,
+          traceId: "trace-resume",
+        }),
+      }) as never,
+  });
+
+  const result = await submitPrompt("/resume sess_old", {
+    abortSignal: new AbortController().signal,
+  });
+
+  // resume 后徽标立即显示占用；无 loadSessionTranscript 时不重置投影。
+  assert.deepEqual(result.projection, { contextUsed: 152_200, contextWindow: 1_000_000 });
+  assert.equal(result.resetSessionProjection, undefined);
+  assert.match(result.response, /sess_old/);
+});
+
+test("readTuiSessionMetadata carries the app context usage projection", async () => {
+  const withUsage = await readTuiSessionMetadata({
+    sessionId: "sess_meta",
+    traceId: "trace-meta",
+    getContextUsage: async () => ({ contextUsed: 42_000, contextWindow: 1_000_000 }),
+    getLocale: () => undefined,
+    getModel: () => "m",
+    getTheme: () => undefined,
+    getThoughtLevel: () => undefined,
+    listModels: () => [],
+  } as never);
+  assert.deepEqual(withUsage.projection, { contextUsed: 42_000, contextWindow: 1_000_000 });
+
+  const withoutUsage = await readTuiSessionMetadata({
+    sessionId: "sess_meta",
+    traceId: "trace-meta",
+    getLocale: () => undefined,
+    getModel: () => "m",
+    getTheme: () => undefined,
+    getThoughtLevel: () => undefined,
+    listModels: () => [],
+  } as never);
+  assert.equal(withoutUsage.projection, undefined);
 });
 
 test("command center treats clear as a new-session alias", async () => {

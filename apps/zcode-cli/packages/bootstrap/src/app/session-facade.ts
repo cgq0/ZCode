@@ -70,6 +70,7 @@ type SessionFacade = Pick<
   | "getMode"
   | "getModel"
   | "getCurrentModelOption"
+  | "getContextUsage"
   | "getModelOption"
   | "getLocale"
   | "getDefaultThoughtLevel"
@@ -151,6 +152,10 @@ export function createSessionFacade(deps: CreateSessionFacadeDeps): SessionFacad
   let currentLocale = resolveLocale(deps.configResult.config.ui.locale);
   // App-Provided Tools：本会话当前登记在 ToolRegistry 里的模型侧名字（整体替换时先注销）。
   let appProvidedToolNames: string[] = [];
+  const readCurrentModelOption = () => {
+    const selection = readUserModelSelection(deps);
+    return selection && getRegistryBackedModel(deps.providerRegistry, selection);
+  };
   const currentRegistrySelection = ():
     | { owned: false }
     | {
@@ -366,9 +371,17 @@ export function createSessionFacade(deps: CreateSessionFacadeDeps): SessionFacad
     listModels: () => {
       return listRegistryBackedModels(deps.providerRegistry);
     },
-    getCurrentModelOption: () => {
-      const selection = readUserModelSelection(deps);
-      return selection && getRegistryBackedModel(deps.providerRegistry, selection);
+    getCurrentModelOption: readCurrentModelOption,
+    // 分子走 runtime 事件投影（getProjection ≡ submit result.projection 同源；
+    // resume 后由持久化 ModelComplete 事件重放恢复），分母走注册表当前模型窗口；
+    // 缺席键省略，不伪造 0。只读、幂等，事件流仍是唯一权威。
+    getContextUsage: async () => {
+      const projection = await deps.runtime.getProjection();
+      const contextWindow = readCurrentModelOption()?.contextWindow;
+      return {
+        ...(projection.contextUsed === undefined ? {} : { contextUsed: projection.contextUsed }),
+        ...(contextWindow === undefined ? {} : { contextWindow }),
+      };
     },
     getModelOption: (selection) => getRegistryBackedModel(deps.providerRegistry, selection),
     listThoughtLevels: () => {

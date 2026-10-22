@@ -134,6 +134,12 @@ export type RevokeWorkspaceHookTrustInput =
 /** 新 Session 可使用 Environment 默认选择；恢复 Session 允许保持未绑定，不补默认模型。 */
 export type ZCodeAppRuntimeConfigInput = AgentRuntimeConfig;
 
+/** 上下文占用的窄读形状：两个键都可缺席（数据缺席就省略，不伪造 0）。 */
+export type ZCodeAppContextUsage = {
+  contextUsed?: number;
+  contextWindow?: number;
+};
+
 export interface ZCodeAppOptions {
   /** 独立 CLI 的配置菜单编辑输入默认值；其他装配保留显式 Session 配置语义。 */
   modelSelectionMode?: "cli-default";
@@ -348,6 +354,12 @@ export interface ZCodeApp {
   getModel(): string;
   /** current-only 协议快照精确读取当前 Registry 模型，避免枚举整个目录。 */
   getCurrentModelOption?(): ZCodeModelOption | undefined;
+  /**
+   * 只读、幂等的上下文占用查询：分子=runtime 事件投影（getProjection 同源），
+   * 分母=当前注册表模型窗口；缺席字段省略，不伪造 0。
+   * 服务 CLI TUI 徽标的启动/重置播种；事件流仍是唯一权威。
+   */
+  getContextUsage?(): Promise<ZCodeAppContextUsage | undefined>;
   /** 只读 Registry 元数据；不要求选项完整，也不绑定执行模型。 */
   getModelOption?(selection: ModelSelection): ZCodeModelOption | undefined;
   getLocale(): SupportedLocale;

@@ -334,12 +334,21 @@ export function createCommandCenter(deps: CommandCenterDeps): TuiSubmitPrompt {
         }
 
         const app = await deps.newApp();
+        const newModelOption = app.getCurrentModelOption?.();
         return {
           mode: deps.getMode?.(),
           locale: app.getLocale?.(),
           model: app.getModel?.(),
           theme: app.getTheme?.(),
           resetSessionProjection: true,
+          // 全新会话徽标立即显示 0 (0%)（已定裁决：播种 0 合法存活）；窗口取注册表
+          // 当前模型，缺席省略。事件仍是唯一权威，首轮 model_selected/complete 到达后覆盖。
+          projection: {
+            contextUsed: 0,
+            ...(newModelOption?.contextWindow !== undefined
+              ? { contextWindow: newModelOption.contextWindow }
+              : {}),
+          },
           response: formatNewSessionResult(app.sessionId),
           sessionId: app.sessionId,
           thoughtLevel: app.getThoughtLevel?.(),
@@ -379,6 +388,9 @@ export function createCommandCenter(deps: CommandCenterDeps): TuiSubmitPrompt {
       const restoredMessages = app.loadSessionTranscript
         ? await app.loadSessionTranscript()
         : undefined;
+      // resume 后徽标立即显示占用，不等首轮 ModelComplete：分子/分母都来自权威源
+      // （getContextUsage=runtime 投影+注册表窗口），缺席键省略，不伪造数字。
+      const contextUsage = await app.getContextUsage?.();
 
       return {
         mode: deps.getMode?.(),
@@ -391,6 +403,7 @@ export function createCommandCenter(deps: CommandCenterDeps): TuiSubmitPrompt {
               restoredMessages,
             }
           : {}),
+        ...(contextUsage ? { projection: contextUsage } : {}),
         response: formatResumeResult(app.sessionId, result),
         thoughtLevel: app.getThoughtLevel?.(),
         traceId: result.traceId ?? app.traceId,

@@ -82,6 +82,7 @@ export const runTuiCommand = async (
             effortOptions: metadata.effortOptions,
             slashCommands: listSlashCommandSuggestions(customCommands, { workflowMode }),
             workspaceGitBranch,
+            contextUsage: metadata.projection,
           };
         },
         locale: startupLocale,

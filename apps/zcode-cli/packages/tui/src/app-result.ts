@@ -81,12 +81,8 @@ export function useTuiApplyResult(input: TuiApplyResultInput) {
 
       if (result.turnId) input.setActiveTurnId(result.turnId as TurnId);
       if (result.usage) input.setUsage(result.usage);
-      if (result.projection) {
-        input.setContextUsage((current) => ({
-          ...current,
-          ...validContextUsage(result.projection ?? {}),
-        }));
-      }
+      // reset 必须先于 projection merge：/new、/resume 的结果同时带 resetSessionProjection
+      // 和 projection seed，顺序反了 seed 会被自己清掉（先清后种）。
       if (result.resetSessionProjection) {
         input.setUsage(undefined);
         input.setContextUsage({});
@@ -95,6 +91,12 @@ export function useTuiApplyResult(input: TuiApplyResultInput) {
         input.setNetworkRequests([]);
         input.setModifiedFiles([]);
         input.modifiedFileToolCallIds.clear();
+      }
+      if (result.projection) {
+        input.setContextUsage((current) => ({
+          ...current,
+          ...validContextUsage(result.projection ?? {}),
+        }));
       }
 
       input.setSelection(createSelectionState(result.selection));

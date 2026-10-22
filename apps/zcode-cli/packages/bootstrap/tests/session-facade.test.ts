@@ -312,6 +312,40 @@ describe("session facade model selection", () => {
   });
 });
 
+describe("session facade context usage", () => {
+  // 只读窄读：分子=runtime 投影（getProjection 同源，resume 后由持久化事件重放恢复），
+  // 分母=注册表当前模型窗口；本例无选型，窗口键必须省略而不是伪造。
+  it("narrow-reads the runtime projection without a model selection", async () => {
+    const facade = createSessionFacade({
+      configResult: { config: DefaultRuntimeConfig },
+      sessionId: "ctx-session",
+      traceContext: { traceId: "ctx" },
+      runtime: {
+        getProjection: async () => ({ contextUsed: 42_000 }),
+        getSessionModelSelection: () => undefined,
+      },
+      logger: { info: vi.fn(), warn: vi.fn() },
+    } as never);
+
+    await expect(facade.getContextUsage?.()).resolves.toEqual({ contextUsed: 42_000 });
+  });
+
+  it("omits every key when the projection carries no usage yet", async () => {
+    const facade = createSessionFacade({
+      configResult: { config: DefaultRuntimeConfig },
+      sessionId: "ctx-session-empty",
+      traceContext: { traceId: "ctx" },
+      runtime: {
+        getProjection: async () => ({}),
+        getSessionModelSelection: () => undefined,
+      },
+      logger: { info: vi.fn(), warn: vi.fn() },
+    } as never);
+
+    await expect(facade.getContextUsage?.()).resolves.toEqual({});
+  });
+});
+
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   const promise = new Promise<T>((settle) => {

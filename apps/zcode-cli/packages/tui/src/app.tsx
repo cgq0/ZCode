@@ -82,7 +82,8 @@ export function TuiApp({
   const [statusDetails, setStatusDetails] = useState<string[]>([]);
   const [traceId, setTraceId] = useState<string | undefined>();
   const [activeTurnId, setActiveTurnId] = useState<TurnId | undefined>();
-  const [contextUsage, setContextUsage] = useState<ContextUsage>({});
+  // 首帧播种（startup 元数据），事件（model_selected/model_complete）仍是唯一权威。
+  const [contextUsage, setContextUsage] = useState<ContextUsage>(options.contextUsage ?? {});
   const [cacheStats, setCacheStats] = useState<CacheStats | undefined>();
   const [usage, setUsage] = useState<ModelUsageSummary | undefined>();
   const [todos, setTodos] = useState<TodoItem[]>([]);

@@ -34,6 +34,11 @@ export type SwitchableCommandCenterMode = Extract<
 
 export type CommandCenterModelOption = ZCodeModelOption;
 
+export type CommandCenterContextUsage = {
+  contextUsed?: number;
+  contextWindow?: number;
+};
+
 export type CommandCenterLocaleResult = {
   configPath?: string;
   locale: SupportedLocale;
@@ -193,6 +198,11 @@ export type CommandCenterApp = {
   getMode?(): CommandCenterMode;
   getModel?(): string | undefined;
   getCurrentModelOption?(): CommandCenterModelOption | undefined;
+  /**
+   * 只读、幂等的上下文占用查询（分母=注册表窗口、分子=runtime 投影）；缺席字段直接省略，
+   * 不伪造 0。服务 TUI 徽标的启动/重置播种，事件流仍是唯一权威。
+   */
+  getContextUsage?(): Promise<CommandCenterContextUsage | undefined>;
   getLocale?(): TuiSubmitPromptResult["locale"];
   getTheme?(): TuiSubmitPromptResult["theme"];
   getThoughtLevel?(): string | undefined;

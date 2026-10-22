@@ -886,3 +886,8 @@ exceptions:
       - packages/ui/src/settings/DynamicWorkflowModeSetting.tsx
       - packages/ui/src/store/dynamicWorkflowAvailabilityStore.ts
     reason: Admitted upstream files edited only to let the user's dynamic workflow mode choice always win and keep the settings row visible; adopting packages/shared/src and packages/ui/src needs a separate module boundary refactor.
+  - id: tui-session-metadata-context-seed-unmanaged-edit
+    rule: unmanaged-new-file
+    paths:
+      - apps/zcode-cli/packages/cli/src/tui-prompt-handler-queries.ts
+    reason: Admitted upstream query file gains one read-only projection passthrough in readTuiSessionMetadata so the CLI TUI context badge can be seeded at startup (/new, /resume); the file stays an app-read-only query surface with no new write path, and adopting apps/zcode-cli needs a separate module boundary refactor (docs/superpowers/specs/2026-10-22-tui-context-badge-startup-seeding-design.md).

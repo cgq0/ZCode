@@ -15,6 +15,9 @@ export async function readTuiSessionMetadata(app: CommandCenterApp): Promise<Tui
     modelOptions,
     effortOptions: (await listAppEffortOptions(app)) ?? [],
     loginRequired: !modelOptions.some((model) => !model.disabledReason),
+    // 启动徽标播种：projection 通道透传（分子=runtime 投影、分母=注册表窗口），
+    // 双双缺席时是空对象，TUI 守卫照旧隐藏。
+    projection: await app.getContextUsage?.(),
   };
 }
 
