@@ -1055,6 +1055,56 @@ test("parses login and logout slash commands", () => {
   });
 });
 
+test("parses exit and quit slash commands", () => {
+  assert.deepEqual(parseSlashCommand("/exit"), {
+    args: "",
+    name: "exit",
+    rawName: "exit",
+    type: "known",
+  });
+  assert.deepEqual(parseSlashCommand("/quit"), {
+    args: "",
+    name: "exit",
+    rawName: "quit",
+    type: "known",
+  });
+  assert.deepEqual(parseSlashCommand("/exit now"), {
+    args: "now",
+    name: "exit",
+    rawName: "exit",
+    type: "known",
+  });
+});
+
+test("command center flags /exit and /quit as exit intents after recording history", async () => {
+  const recordedInputs: string[] = [];
+  const commandCenter = createCommandCenter({
+    getApp: async () => {
+      throw new Error("app should not be created");
+    },
+    getMode: () => "build",
+    recordInputHistory: async (input) => {
+      recordedInputs.push(typeof input === "string" ? input : input.text);
+    },
+    resumeApp: async () => {
+      throw new Error("resume should not be called");
+    },
+  });
+
+  const exitResult = await commandCenter("/exit", {});
+  const quitResult = await commandCenter("/quit", {});
+  const usageResult = await commandCenter("/exit now", {});
+
+  assert.equal(exitResult.exit, true);
+  assert.equal(exitResult.mode, "build");
+  assert.match(exitResult.response, /Exiting/);
+  assert.equal(quitResult.exit, true);
+  assert.equal(usageResult.exit, undefined);
+  assert.match(usageResult.response, /Usage: \/exit/);
+  // 退出前输入历史必须已落盘（applyResult 消费 exit 即退出，来不及补记）。
+  assert.deepEqual(recordedInputs, ["/exit", "/quit", "/exit now"]);
+});
+
 test("command center handles login and logout locally", async () => {
   let loginCalled = false;
   let loginAbortSignal: AbortSignal | undefined;
@@ -2673,6 +2723,9 @@ test("command center returns slash help without creating an app", async () => {
   const effortCommand = await submitPrompt("/help /variant", {
     abortSignal: new AbortController().signal,
   });
+  const exitCommand = await submitPrompt("/help /quit", {
+    abortSignal: new AbortController().signal,
+  });
   const modelCommand = await submitPrompt("/help /model", {
     abortSignal: new AbortController().signal,
   });
@@ -2684,12 +2737,17 @@ test("command center returns slash help without creating an app", async () => {
   assert.match(allCommands.response, /\/init \[notes\]/);
   assert.match(allCommands.response, /\/workflow \[what the workflow should accomplish\]/);
   assert.match(allCommands.response, /\/expert \[status\|resume\|stop\|<task>\]/);
+  assert.match(allCommands.response, /\/exit: Exit the CLI\./);
   assert.match(clearCommand.response, /^\/new$/m);
   assert.match(clearCommand.response, /Aliases: \/clear/);
   assert.match(clearCommand.response, /Start a fresh session in the TUI\./);
   assert.match(effortCommand.response, /^\/effort \[list\|<level>\]/);
   assert.match(effortCommand.response, /Aliases: \/variant/);
   assert.match(effortCommand.response, /reasoning effort/);
+  // quit 是 exit 的别名：/help 按别名命中并显示完整条目。
+  assert.match(exitCommand.response, /^\/exit$/m);
+  assert.match(exitCommand.response, /Aliases: \/quit/);
+  assert.match(exitCommand.response, /a running agent turn is interrupted first/);
   // /model main|lite 别名已随结构化模型选择移除，只接受 provider/model。
   assert.match(modelCommand.response, /^\/model \[list\|provider\/model\]/);
   assert.match(modelCommand.response, /Show or switch the current session model\./);
@@ -4560,6 +4618,22 @@ test("prints slash help for prompt help command without creating an app", async 
   assert.match(ctx.stdout.output(), /Slash commands:/);
   assert.match(ctx.stdout.output(), /\/help \[command\]/);
   assert.match(ctx.stdout.output(), /Use \/help <command> for details\./);
+  assert.equal(ctx.stderr.output(), "");
+});
+
+test("headless /exit returns a hint without creating an app", async () => {
+  const ctx = createContext(["--prompt", "/exit"]);
+  let appCreated = false;
+  const exitCode = await run(ctx, {
+    createZCodeApp: () => {
+      appCreated = true;
+      throw new Error("app should not be created");
+    },
+  });
+
+  assert.equal(exitCode, 0);
+  assert.equal(appCreated, false);
+  assert.match(ctx.stdout.output(), /\/exit is only available in the interactive TUI\./);
   assert.equal(ctx.stderr.output(), "");
 });
 

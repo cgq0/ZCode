@@ -151,6 +151,8 @@ export type TuiRestoredTranscriptPart =
 
 export type TuiSubmitPromptResult = {
   effortOptions?: readonly TuiEffortOption[];
+  /** 命令中心声明退出意图（/exit /quit）；TUI applyResult 是唯一消费点，消费即进程退出。 */
+  exit?: boolean;
   modelOptions?: readonly TuiModelOption[];
   locale?: SupportedLocale;
   loginRequired?: boolean;

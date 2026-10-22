@@ -44,12 +44,23 @@ type TuiApplyResultInput = {
   setTodos: React.Dispatch<React.SetStateAction<TodoItem[]>>;
   setTraceId: (traceId: string | undefined) => void;
   setUsage: React.Dispatch<React.SetStateAction<ModelUsageSummary | undefined>>;
+  /** 唯一持有 renderer 的退出通道（对齐 Ctrl+C 连按确认路径的 onExit(0)）。 */
+  onExit: (code: number) => void;
+  /** 在飞的回合控制器；/exit 在 busy 时先 abort 再退出，与 Ctrl+C 连按同一 abort 路径。 */
+  turnRef: React.MutableRefObject<AbortController | undefined>;
   workspaceDirectory?: string;
 };
 
 export function useTuiApplyResult(input: TuiApplyResultInput) {
   return React.useCallback(
     (result: TuiSubmitPromptResult, preserveTurnState = false) => {
+      // 两条产生 result 的路径（空闲 submit、busy sendInput 的 command_result）都汇入这里，
+      // 消费点必须唯一且在 preserveTurnState 早退之前：exit 一到就终止，不再写任何状态。
+      if (result.exit === true) {
+        input.turnRef.current?.abort();
+        input.onExit(0);
+        return;
+      }
       const resultCopy = getZCodeCopy(result.locale ?? input.fallback.locale).tui;
       input.setMode(result.mode ?? input.fallback.mode);
       input.setModel(result.model ?? input.fallback.model);

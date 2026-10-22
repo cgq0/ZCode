@@ -158,6 +158,16 @@ export const BUILTIN_ZCODE_SLASH_COMMAND_HELP_ENTRIES: readonly BuiltinZCodeSlas
     usage: "/resume [sessionId]",
   },
   {
+    aliases: ["quit"],
+    details: [
+      "Exits the interactive TUI with exit code 0; a running agent turn is interrupted first.",
+      "/quit is an alias. Only available in the interactive TUI.",
+    ],
+    name: "exit",
+    summary: "Exit the CLI.",
+    usage: "/exit",
+  },
+  {
     details: [
       "In the TUI, opens a checkpoint picker when called without arguments.",
       "Use status to show the latest checkpoint, or latest/a checkpoint id to restore directly.",

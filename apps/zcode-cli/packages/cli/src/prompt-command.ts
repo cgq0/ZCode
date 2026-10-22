@@ -123,6 +123,11 @@ export const runPrompt = async (
     }
     return await runLogoutCommand(ctx, options, deps);
   }
+  // headless 本就单 prompt 即退出，/exit 无意义：不建 app、不发模型，回提示文本正常退出。
+  if (slashCommand?.type === "known" && slashCommand.name === "exit") {
+    ctx.stdout.write("/exit is only available in the interactive TUI.\n");
+    return 0;
+  }
 
   const runtimePrompt =
     slashCommand?.type === "known" && slashCommand.name === "skill"

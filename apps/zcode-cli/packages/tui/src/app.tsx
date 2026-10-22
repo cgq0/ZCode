@@ -170,6 +170,7 @@ export function TuiApp({
   const applyResult = useTuiApplyResult({
     fallback: { locale, loginRequired, mode, model },
     modifiedFileToolCallIds: modifiedFileToolCallIdsRef.current,
+    onExit,
     setActiveTurnId,
     setCacheStats,
     setContextUsage,
@@ -191,6 +192,7 @@ export function TuiApp({
     setTodos,
     setTraceId,
     setUsage,
+    turnRef: abortControllerRef,
     workspaceDirectory: options.workspaceDirectory,
   });
 

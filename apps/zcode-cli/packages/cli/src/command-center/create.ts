@@ -75,6 +75,22 @@ export function createCommandCenter(deps: CommandCenterDeps): TuiSubmitPrompt {
     }
 
     const result = await (async () => {
+      // /exit 只声明意图，退出执行权在 TUI（applyResult 是唯一持有 renderer/onExit 的点）；
+      // recordSlashCommandInHistory 在本函数尾部 await 落盘后才返回，退出前历史必已记录。
+      if (command.name === "exit") {
+        if (command.args.length > 0) {
+          return {
+            mode: deps.getMode?.(),
+            response: "Usage: /exit",
+          };
+        }
+        return {
+          exit: true,
+          mode: deps.getMode?.(),
+          response: "Exiting ZCode CLI.",
+        };
+      }
+
       if (command.name === "help") {
         const customCommands = await listCustomCommandsForHelp(deps);
         return {
