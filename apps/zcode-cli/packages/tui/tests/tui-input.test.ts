@@ -33,12 +33,11 @@ import { modelDisplayParts } from "../src/app-model-ref.js";
 
 const TEST_STATUS_PROPS = { model: "default-deepseek/deepseek-v4-pro", thoughtLevel: "max" };
 
-test("prompt textarea binds Enter to submit and Shift+Enter to newline", () => {
+test("prompt textarea binds Enter to submit, Ctrl+J (bare linefeed) to newline", () => {
   assert.deepEqual(PROMPT_TEXTAREA_KEY_BINDINGS, [
     { name: "return", action: "submit" },
-    { name: "linefeed", action: "submit" },
+    { name: "linefeed", action: "newline" },
     { name: "return", shift: true, action: "newline" },
-    { name: "linefeed", shift: true, action: "newline" },
   ]);
 });
 
@@ -291,6 +290,56 @@ test("Shift+Enter inserts a newline while Enter submits the textarea draft", asy
 
     assert.equal(inputs.at(-1), "hello\nworld");
     assert.deepEqual(submitted, ["hello\nworld"]);
+  } finally {
+    await act(async () => {
+      view?.renderer.destroy();
+    });
+  }
+});
+
+// Ctrl+J 在终端发裸 LF(0x0A)：mockInput.pressKey 会把 "\n" 重编码成 kitty return，
+// 必须用 pressKeys 直发裸字节才能复现真实按键路径。
+test("Ctrl+J (bare linefeed bytes) inserts a newline without submitting", async () => {
+  const inputs: string[] = [];
+  const submitted: string[] = [];
+  let view: Awaited<ReturnType<typeof testRender>> | undefined;
+
+  await act(async () => {
+    view = await testRender(
+      React.createElement(InputPane, {
+        busy: false,
+        focused: true,
+        ...TEST_STATUS_PROPS,
+        onInput: (value) => {
+          inputs.push(value);
+        },
+        onSubmit: (value) => {
+          submitted.push(value);
+        },
+        resetCursorToEndVersion: 0,
+        value: "",
+      }),
+      {
+        height: 12,
+        kittyKeyboard: true,
+        otherModifiersMode: true,
+        width: 50,
+      },
+    );
+    await view.renderOnce();
+  });
+
+  try {
+    await act(async () => {
+      assert.ok(view);
+      await view.mockInput.typeText("hello");
+      await view.mockInput.pressKeys(["\n"]);
+      await view.mockInput.typeText("world");
+      await view.renderOnce();
+    });
+
+    assert.equal(inputs.at(-1), "hello\nworld");
+    assert.deepEqual(submitted, []);
   } finally {
     await act(async () => {
       view?.renderer.destroy();

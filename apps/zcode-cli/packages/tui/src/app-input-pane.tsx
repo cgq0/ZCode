@@ -31,11 +31,12 @@ export const INPUT_PANE_STATUS_SPACER_STYLE = {
   minHeight: 0,
 } as const;
 
+// Ctrl+J 在终端发裸 LF(0x0A)，opentui 解析为不带 ctrl 位的 linefeed，无法与
+// 裸 LF 区分；linefeed 必须保持换行（对齐主流 TUI），submit 只走 return(CR) 路径。
 export const PROMPT_TEXTAREA_KEY_BINDINGS = [
   { name: "return", action: "submit" },
-  { name: "linefeed", action: "submit" },
+  { name: "linefeed", action: "newline" },
   { name: "return", shift: true, action: "newline" },
-  { name: "linefeed", shift: true, action: "newline" },
 ] as const;
 
 export type PromptInputEditor = Pick<
