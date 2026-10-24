@@ -531,6 +531,11 @@ const appSettingsObjectSchema = z.object({
   desktopZoomLevel: desktopZoomLevelSchema.optional(),
   desktopWindowSize: desktopWindowSizeSchema.optional(),
   desktopChromiumHardwareAccelerationEnabled: z.boolean().default(true),
+  // macOS 窗口遮挡节流（spec：docs/desktop/mac-occlusion-throttling.md）。
+  // 缺省 true 跟随 Electron ≥41.2.0 的 Chromium 默认；false 时 main 在下次启动
+  // 注入 --disable-features=MacWebContentsOcclusion。完整 schema 必须持有该字段，
+  // 否则只存在于 patch schema 的字段会在合并后走完整 schema 时被剥离（见下方教训注释）。
+  desktopMacOcclusionThrottlingEnabled: z.boolean().default(true),
   messageStreamShowReasoning: z.boolean().default(true),
   messageStreamShowReasoningMigrationInitialized: z.boolean().default(true),
   messageStreamShowTodos: z.boolean().default(false),
@@ -627,6 +632,7 @@ export const appSettingsPatchSchema = z.object({
   desktopZoomLevel: desktopZoomLevelSchema.optional(),
   desktopWindowSize: desktopWindowSizeSchema.optional(),
   desktopChromiumHardwareAccelerationEnabled: z.boolean().optional(),
+  desktopMacOcclusionThrottlingEnabled: z.boolean().optional(),
   messageStreamShowReasoning: z.boolean().optional(),
   messageStreamShowReasoningMigrationInitialized: z.boolean().optional(),
   messageStreamShowTodos: z.boolean().optional(),

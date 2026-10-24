@@ -430,6 +430,17 @@ modules:
       - app
       - adapters
       - ui
+  # desktop-mac-occlusion：由 architecture:adopt 登记
+  - id: desktop-mac-occlusion
+    roots:
+      - packages/desktop/src/main/mac-occlusion
+    managed: true
+    requires: []
+    publicEntrypoints:
+      - packages/desktop/src/main/mac-occlusion/index.ts
+      - packages/desktop/src/main/mac-occlusion/contract.ts
+    layers:
+      adapters: .
   # desktop-web-remote-relay：由 architecture:adopt 登记
   - id: desktop-web-remote-relay
     roots:

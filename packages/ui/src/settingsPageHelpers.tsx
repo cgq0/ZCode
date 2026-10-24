@@ -136,6 +136,7 @@ export function GeneralSectionContent({
   closeToTrayOnWindows,
   keepAwakeWhileRunning = false,
   desktopChromiumHardwareAccelerationEnabled = true,
+  desktopMacOcclusionThrottlingEnabled = true,
   receivePreviewUpdates,
   autoDownloadAndInstallUpdates,
   dataBaseDir,
@@ -153,6 +154,7 @@ export function GeneralSectionContent({
   isDesktop,
   isWindowsDesktop,
   isLinuxDesktop,
+  isMacDesktop,
   linuxCloseToTray,
   showIntegratedTerminalShell = false,
   setLocalePreference,
@@ -178,6 +180,7 @@ export function GeneralSectionContent({
   onCloseToTrayOnWindowsChange,
   onKeepAwakeWhileRunningChange = async () => {},
   onDesktopChromiumHardwareAccelerationChange = async () => {},
+  onDesktopMacOcclusionThrottlingChange = async () => {},
   onReceivePreviewUpdatesChange,
   onAutoDownloadAndInstallUpdatesChange,
   onMessageStreamShowReasoningChange,
@@ -198,6 +201,7 @@ export function GeneralSectionContent({
   closeToTrayOnWindows: boolean;
   keepAwakeWhileRunning?: boolean;
   desktopChromiumHardwareAccelerationEnabled?: boolean;
+  desktopMacOcclusionThrottlingEnabled?: boolean;
   receivePreviewUpdates: boolean;
   autoDownloadAndInstallUpdates: boolean;
   dataBaseDir: string;
@@ -216,6 +220,8 @@ export function GeneralSectionContent({
   isWindowsDesktop?: boolean;
   /** Linux 桌面端（isDesktop 且非 win/mac）；关闭驻留托盘设置在 Linux 上按能力自适应展示 */
   isLinuxDesktop?: boolean;
+  /** macOS 桌面端；遮挡节流是 macOS 专属设置行（spec：docs/desktop/mac-occlusion-throttling.md） */
+  isMacDesktop?: boolean;
   /** Linux 关闭驻留托盘能力状态（spec：docs/desktop/linux-close-to-tray.md）；Windows 不传 */
   linuxCloseToTray?: {
     /** 能力探测中或确认不可用，开关锁定 */
@@ -250,6 +256,7 @@ export function GeneralSectionContent({
   onCloseToTrayOnWindowsChange: (enabled: boolean) => Promise<void>;
   onKeepAwakeWhileRunningChange?: (enabled: boolean) => Promise<void>;
   onDesktopChromiumHardwareAccelerationChange?: (enabled: boolean) => Promise<void>;
+  onDesktopMacOcclusionThrottlingChange?: (enabled: boolean) => Promise<void>;
   onReceivePreviewUpdatesChange: (enabled: boolean) => Promise<void>;
   onAutoDownloadAndInstallUpdatesChange: (enabled: boolean) => Promise<void>;
   onMessageStreamShowReasoningChange: (enabled: boolean) => Promise<void>;
@@ -704,6 +711,27 @@ export function GeneralSectionContent({
                 />
               }
             />
+            {isMacDesktop ? (
+              <SettingsRow
+                label={intl.formatMessage({
+                  id: "settings.desktopMacOcclusionThrottling",
+                })}
+                description={intl.formatMessage({
+                  id: "settings.desktopMacOcclusionThrottlingDescription",
+                })}
+                control={
+                  <Switch
+                    aria-label={intl.formatMessage({
+                      id: "settings.desktopMacOcclusionThrottling",
+                    })}
+                    checked={desktopMacOcclusionThrottlingEnabled}
+                    onCheckedChange={(checked) => {
+                      void onDesktopMacOcclusionThrottlingChange(checked);
+                    }}
+                  />
+                }
+              />
+            ) : null}
             <SettingsRow
               label={intl.formatMessage({ id: "settings.receivePreviewUpdates" })}
               description={intl.formatMessage({

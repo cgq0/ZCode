@@ -283,6 +283,27 @@ describe("app settings", () => {
     expect(() => appSettingsPatchSchema.parse({ desktopZoomLevel: -4 })).toThrow();
   });
 
+  it("defaults mac occlusion throttling to on and preserves an explicit off across merges", () => {
+    // spec：docs/desktop/mac-occlusion-throttling.md。缺省 true 跟随 Electron ≥41.2.0
+    // 的 Chromium 默认；显式 false 是"下次启动注入 disable 参数"的唯一依据，
+    // 必须在完整 schema 与 patch schema 双侧可表达，否则合并写回会把它剥掉。
+    expect(appSettingsSchema.parse({}).desktopMacOcclusionThrottlingEnabled).toBe(true);
+    expect(
+      appSettingsSchema.parse({ desktopMacOcclusionThrottlingEnabled: false })
+        .desktopMacOcclusionThrottlingEnabled,
+    ).toBe(false);
+    expect(appSettingsPatchSchema.parse({}).desktopMacOcclusionThrottlingEnabled).toBeUndefined();
+    expect(
+      appSettingsPatchSchema.parse({ desktopMacOcclusionThrottlingEnabled: false })
+        .desktopMacOcclusionThrottlingEnabled,
+    ).toBe(false);
+    for (const invalid of ["false", 0, null]) {
+      expect(
+        appSettingsPatchSchema.safeParse({ desktopMacOcclusionThrottlingEnabled: invalid }).success,
+      ).toBe(false);
+    }
+  });
+
   it("accepts a bounded desktop main window size and maximized state", () => {
     const desktopWindowSize = { width: 1440, height: 900, maximized: true };
 

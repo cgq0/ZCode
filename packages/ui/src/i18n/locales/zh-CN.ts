@@ -3005,6 +3005,11 @@ const zhCN: Record<string, string> = {
     "关闭后可规避部分显卡或驱动导致的白屏、闪退、渲染异常。修改后需重启应用生效。",
   "settings.desktopChromiumHardwareAccelerationSavedHint":
     "Chrome 硬件加速设置已保存，重启应用后生效",
+  "settings.desktopMacOcclusionThrottling": "窗口遮挡时节流（macOS）",
+  "settings.desktopMacOcclusionThrottlingDescription":
+    "窗口被其他窗口完全遮挡时降低渲染与 CPU 占用。修改后需重启应用生效，下次启动会自动完成一次额外重启。注意：开启后手机远控在桌面窗口被完全遮挡时可能收不到新画面。若出现窗口可见性异常可关闭此项。",
+  "settings.desktopMacOcclusionThrottlingSavedHint":
+    "窗口遮挡节流设置已保存，重启应用后生效",
   "settings.receivePreviewUpdates": "接受提前收到预览版更新",
   "settings.receivePreviewUpdatesDescription":
     "开启后将最快、提前体验新功能和改进版本，关闭后将随着版本发布节奏获得版本推送更新。",

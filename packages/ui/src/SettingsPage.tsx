@@ -808,6 +808,8 @@ export function SettingsPage({
     desktopChromiumHardwareAccelerationEnabled,
     setDesktopChromiumHardwareAccelerationEnabled,
   ] = useState(true);
+  const [desktopMacOcclusionThrottlingEnabled, setDesktopMacOcclusionThrottlingEnabled] =
+    useState(true);
   const [receivePreviewUpdates, setReceivePreviewUpdates] = useState(false);
   const [autoDownloadAndInstallUpdates, setAutoDownloadAndInstallUpdates] = useState(false);
   const [messageStreamShowReasoning, setMessageStreamShowReasoning] = useState(true);
@@ -895,6 +897,9 @@ export function SettingsPage({
         setCloseToTrayOnWindows(settings.closeToTrayOnWindows ?? Boolean(isWindowsDesktop));
         setDesktopChromiumHardwareAccelerationEnabled(
           settings.desktopChromiumHardwareAccelerationEnabled ?? true,
+        );
+        setDesktopMacOcclusionThrottlingEnabled(
+          settings.desktopMacOcclusionThrottlingEnabled ?? true,
         );
       })
       .catch(() => {});
@@ -1248,6 +1253,33 @@ export function SettingsPage({
       toast(
         intl.formatMessage({
           id: "settings.desktopChromiumHardwareAccelerationSavedHint",
+        }),
+      );
+    },
+    [localHostServices.settingService, intl],
+  );
+  const handleDesktopMacOcclusionThrottlingChange = useCallback(
+    async (enabled: boolean) => {
+      // spec：docs/desktop/mac-occlusion-throttling.md。保存的是"下次启动期望"，
+      // argv 协调由 main 在下次启动的窗口创建前完成；重启后至多一次静默 relaunch。
+      await runSettingsActionAsync({
+        featureId: "settings.desktop",
+        action: "toggle_mac_occlusion_throttling",
+        trigger: "switch",
+        operation: () =>
+          localHostServices.settingService.update({
+            desktopMacOcclusionThrottlingEnabled: enabled,
+          }),
+        completed: {
+          resultSource: "setting_service",
+          stateAfter: enabled ? "enabled" : "disabled",
+          requiresRestart: true,
+        },
+      });
+      setDesktopMacOcclusionThrottlingEnabled(enabled);
+      toast(
+        intl.formatMessage({
+          id: "settings.desktopMacOcclusionThrottlingSavedHint",
         }),
       );
     },
@@ -1828,6 +1860,13 @@ export function SettingsPage({
                               desktopChromiumHardwareAccelerationEnabled={
                                 desktopChromiumHardwareAccelerationEnabled
                               }
+                              desktopMacOcclusionThrottlingEnabled={
+                                desktopMacOcclusionThrottlingEnabled
+                              }
+                              onDesktopMacOcclusionThrottlingChange={
+                                handleDesktopMacOcclusionThrottlingChange
+                              }
+                              isMacDesktop={isMacDesktop}
                               receivePreviewUpdates={receivePreviewUpdates}
                               autoDownloadAndInstallUpdates={autoDownloadAndInstallUpdates}
                               dataBaseDir={dataBaseDir}

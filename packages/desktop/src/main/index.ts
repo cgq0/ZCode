@@ -3,6 +3,7 @@ import { createLocalTtftExporter } from "./localTtftExporter.js";
 /* eslint-disable max-lines */
 import "./desktopEarlyDataBaseDirBootstrap.js";
 import "./desktopEarlyChromiumHardwareAccelerationBootstrap.js";
+import { resolveMacOcclusionThrottleRelaunchArgs } from "./mac-occlusion/index.js";
 import { powerMonitor, powerSaveBlocker } from "electron";
 import { crashCapturePaths } from "./appCrashCaptureBootstrap.js";
 import { armsInitPromise } from "./appARMSBootstrap.js";
@@ -2120,8 +2121,28 @@ app.whenReady().then(async () => {
     currentDesktopWindowSize = bootstrapSettings.desktopWindowSize;
     // 全局 keep-awake：启动时若设置已开，立刻持有 powerSaveBlocker，不必等设置变更事件。
     reconcileKeepAwakeBlocker();
-  } catch {
+
+    // macOS 遮挡节流启动协调（spec：docs/desktop/mac-occlusion-throttling.md）：
+    // 设置只表达"下次启动期望"；argv 与期望不一致时在创建任何窗口前 relaunch 一次。
+    // 不走 JS appendSwitch——浏览器进程 FeatureList 在 JS 之前已冻结，写它无效。
+    // 失败只 warn 不阻断启动；app.quit() 会终止本回调，return 防御性跳过剩余初始化。
+    const occlusionRelaunchArgs = resolveMacOcclusionThrottleRelaunchArgs({
+      platform: process.platform,
+      enabled: bootstrapSettings.desktopMacOcclusionThrottlingEnabled,
+      argv: process.argv,
+    });
+    if (occlusionRelaunchArgs) {
+      logger.info("[settings] reconciling mac occlusion throttle launch args, relaunching", {
+        args: occlusionRelaunchArgs,
+      });
+      await prepareAppQuit("settings-mac-occlusion-relaunch");
+      app.relaunch({ args: occlusionRelaunchArgs });
+      app.quit();
+      return;
+    }
+  } catch (error) {
     // 读取失败不影响启动，使用默认 homedir
+    logger.warn("[settings] bootstrap settings read/reconcile failed", error);
   }
 
   // scheduler 也会打开 tasks-index；等 Host 完成统一准备，避免在启动页出现前抢先迁移。

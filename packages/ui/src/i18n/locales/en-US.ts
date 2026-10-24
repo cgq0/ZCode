@@ -3208,6 +3208,11 @@ const enUS: Record<string, string> = {
     "Turn this off to work around blank windows, crashes, or rendering issues caused by some GPUs or drivers. Restart the app to take effect.",
   "settings.desktopChromiumHardwareAccelerationSavedHint":
     "Chrome hardware acceleration setting saved. Restart the app to take effect.",
+  "settings.desktopMacOcclusionThrottling": "Throttle when occluded (macOS)",
+  "settings.desktopMacOcclusionThrottlingDescription":
+    "Reduces rendering and CPU usage when the window is fully covered by other windows. Restart the app to take effect; the next launch may relaunch once automatically. Note: with this on, mobile remote control may stop receiving new frames while the desktop window is fully covered. Turn this off if you notice window visibility glitches.",
+  "settings.desktopMacOcclusionThrottlingSavedHint":
+    "Mac occlusion throttling setting saved. Restart the app to take effect.",
   "settings.receivePreviewUpdates": "Receive preview updates early",
   "settings.receivePreviewUpdatesDescription":
     "When enabled, you will get the earliest access to new features and improvements. When disabled, you will receive update pushes according to the regular release schedule.",

@@ -318,6 +318,13 @@ export interface AppSettings {
   };
   /** 桌面端 Chromium 硬件加速开关；只在下次启动 main 进程早期生效，Web/手机端忽略。 */
   desktopChromiumHardwareAccelerationEnabled?: boolean;
+  /**
+   * macOS 窗口遮挡节流开关（spec：docs/desktop/mac-occlusion-throttling.md）。
+   * 缺省 true 跟随 Electron ≥41.2.0 的 Chromium 默认；false 时 main 在下次启动
+   * 创建窗口前注入 --disable-features=MacWebContentsOcclusion 并 relaunch 一次。
+   * 桌面专属、macOS 专属；Web/手机端忽略。
+   */
+  desktopMacOcclusionThrottlingEnabled?: boolean;
   /** 是否在消息流中展示模型思考过程 */
   messageStreamShowReasoning?: boolean;
   // TODO(settings-schema-version): 能证明所有受支持升级路径都已执行本次迁移后，改用统一 settings schema version，并一起删除此 marker、迁移函数和持久化判断。
