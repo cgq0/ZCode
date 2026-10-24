@@ -83,6 +83,12 @@ Slash Commands:
     },
     input: {
       activeStatusHint: "esc to interrupt",
+      backgroundTasksCtrlCConfirm: (count) =>
+        `${count} 个后台任务运行中——再按一次 Ctrl-C 退出并终止。`,
+      backgroundTasksExitConfirm: (count) =>
+        `${count} 个后台任务仍在运行，退出将终止它们；再次 /exit 确认。`,
+      backgroundTasksRunning: (count, longest) =>
+        `⏳ ${count} 个后台任务运行中（最长 ${longest}）· /tasks 查看`,
       busyPlaceholder: "输入内容会排队",
       placeholder: "输入提示词",
       queuedMore: (count) => `还有 ${count} 条排队中`,

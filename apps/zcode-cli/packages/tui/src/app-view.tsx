@@ -1,6 +1,13 @@
-import type { ModelUsageSummary, TodoItem, TurnId } from "@zcode/contracts";
+import type { ScrollBoxRenderable } from "@mbears/opentui-core";
+import type {
+  BackgroundTaskInfo,
+  ModelUsageSummary,
+  TodoItem,
+  TurnId,
+} from "@zcode/contracts";
 import React from "react";
 import { ApprovalPanel } from "./app-approval-panel.js";
+import { BackgroundTasksHint } from "./app-background-task-hint.js";
 import {
   actionPanelContentWidthForTerminal,
   AppShell,
@@ -13,6 +20,7 @@ import { FileMentionPanel } from "./app-file-mention-panel.js";
 import type { FileMentionState } from "./app-file-mentions.js";
 import { EffortSuggestionPanel } from "./app-effort-suggestion-panel.js";
 import { InputPane, type PromptInputEditor } from "./app-input-pane.js";
+import { stripTrailingEllipsis, useThinkingDots } from "./app-motion.js";
 import { InputActiveStatus } from "./app-input-status.js";
 import { QueuedInputPanel } from "./app-queued-inputs.js";
 import { ModeSuggestionPanel } from "./app-mode-suggestion-panel.js";
@@ -53,7 +61,9 @@ export function AppView(props: {
   subagents?: SubagentsController;
   toggleSidebar?: () => boolean;
   activeTurnId?: TurnId;
+  transcriptScrollRef?: (instance: ScrollBoxRenderable | null) => void;
   approvalQueue: ApprovalPrompt[];
+  backgroundTasks?: BackgroundTaskInfo[];
   busy: boolean;
   cacheStats?: CacheStats;
   contextUsage: ContextUsage;
@@ -99,6 +109,13 @@ export function AppView(props: {
   expandedWorkflowRunIds?: ReadonlySet<string>;
 }): React.ReactElement {
   const readOnly = Boolean(props.subagents?.selected);
+  // busy 时状态文本尾部省略号换成 1→2→3 循环动态点（docs/cli-tui-activity-visibility.md）：
+  // 静止的 "Thinking..." 分不清"在等模型"还是"已经完了"。timer 仅 busy 时存在；
+  // 在 AppView 组好纯字符串再传 Sidebar，Sidebar 保持无 hook（单测直接函数调用可用）。
+  const thinkingDots = useThinkingDots(props.busy);
+  const sidebarStatus = props.busy
+    ? `${stripTrailingEllipsis(props.status)}${thinkingDots}`
+    : props.status;
   const handleShellMouseUp = React.useCallback(() => {
     props.copyCurrentSelection();
     if (!readOnly) props.editorRef.current?.focus();
@@ -147,7 +164,7 @@ export function AppView(props: {
         networkRequests: props.networkRequests,
         onToggleSection: props.toggleSidebarSection,
         sectionExpansion: props.sidebarSections,
-        status: props.status,
+        status: sidebarStatus,
         statusDetails: props.statusDetails,
         thoughtLevel: props.thoughtLevel,
         todos: props.todos,
@@ -185,10 +202,19 @@ export function AppView(props: {
         copy: props.copy,
         focused: false,
         messages: transcriptMessages,
+        scrollRef: props.transcriptScrollRef,
         terminalWidth: actionPanelContentWidth,
         workflowCardsByToolCallId: props.workflowCardsByToolCallId,
         expandedWorkflowRunIds: props.expandedWorkflowRunIds,
       }),
+      // 后台任务指示行让位于审批/选择面板（docs/cli-tui-activity-visibility.md）。
+      !props.approvalQueue[0] && !actionSelection
+        ? h(BackgroundTasksHint, {
+            tasks: props.backgroundTasks ?? [],
+            copy: props.copy,
+            contentWidth: actionPanelContentWidth,
+          })
+        : null,
       props.approvalQueue[0]
         ? h(ApprovalPanel, {
             approval: props.approvalQueue[0],
@@ -200,8 +226,10 @@ export function AppView(props: {
               copy: props.copy,
               selection: actionSelection,
             })
-          : h(ComposerInputArea, {
-              focused: !readOnly,
+          : h(
+              ComposerInputArea,
+              {
+                focused: !readOnly,
               busy: props.busy,
               contentWidth: actionPanelContentWidth,
               contextUsage: props.contextUsage,

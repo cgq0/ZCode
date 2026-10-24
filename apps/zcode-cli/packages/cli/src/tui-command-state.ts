@@ -1,5 +1,6 @@
 import type {
   TuiEffortOption,
+  TuiListBackgroundTasks,
   TuiListMcpServers,
   TuiGetMainSessionId,
   TuiListWorkflowRuns,
@@ -19,6 +20,7 @@ export type TuiPromptHandler = TuiSubmitPrompt & {
   close?: () => Promise<void>;
   getSessionMetadata?: () => Promise<TuiSessionMetadata>;
   listEffortOptions?: () => Promise<readonly TuiEffortOption[]>;
+  listBackgroundTasks?: TuiListBackgroundTasks;
   listMcpServers?: TuiListMcpServers;
   readSubagents?: import("@zcode/tui").TuiReadSubagents;
   readSubagentTranscript?: import("@zcode/tui").TuiReadSubagentTranscript;

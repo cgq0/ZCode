@@ -1,6 +1,7 @@
 import type { WorkflowRunProgressEnvelope } from "@zcode/shared/zcode-protocol-v4";
 import type { ModelSelection, ZCodeModelOption } from "@zcode/shared";
 import type {
+  BackgroundTaskInfo,
   CollaborationMode,
   InputDelivery,
   ModelUsageSummary,
@@ -225,6 +226,12 @@ export type TuiRecallPreviousInput = (
 
 export type TuiCancelBackgroundTask = (taskId: string) => Promise<unknown>;
 
+/**
+ * 后台任务全量快照查询（事实源 = runtime 投影，见 docs/cli-tui-activity-visibility.md）。
+ * 可选能力：handler 未挂时 hook 静默降级为不显示，不报错。
+ */
+export type TuiListBackgroundTasks = () => Promise<BackgroundTaskInfo[]>;
+
 export type TuiReadSubagents = (input?: {
   endedCursor?: string;
   endedLimit?: number;
@@ -327,6 +334,7 @@ export type TuiOptions = {
   stdin: NodeJS.ReadStream;
   stdout: NodeJS.WriteStream;
   cancelBackgroundTask?: TuiCancelBackgroundTask;
+  listBackgroundTasks?: TuiListBackgroundTasks;
   readSubagents?: TuiReadSubagents;
   readSubagentTranscript?: TuiReadSubagentTranscript;
   listWorkspacePathSuggestions?: TuiListWorkspacePathSuggestions;

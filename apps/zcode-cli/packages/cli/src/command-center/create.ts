@@ -6,6 +6,7 @@ import {
 import { formatNewSessionResult, formatResumeResult } from "./formatters.js";
 import { handleCustomCommand } from "./handlers/custom.js";
 import { handleDwfCommand } from "./handlers/dwf.js";
+import { handleTasksCommand } from "./handlers/tasks.js";
 import { handleEffortCommand } from "./handlers/effort.js";
 import { handleExpertCommand } from "./handlers/expert.js";
 import { handleLocaleCommand } from "./handlers/locale.js";
@@ -254,6 +255,10 @@ export function createCommandCenter(deps: CommandCenterDeps): TuiSubmitPrompt {
 
       if (command.name === "dwf") {
         return handleDwfCommand(command.args, deps);
+      }
+
+      if (command.name === "tasks") {
+        return handleTasksCommand(command.args, deps);
       }
 
       if (command.name === "rewind") {

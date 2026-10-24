@@ -346,6 +346,38 @@ describe("session facade context usage", () => {
   });
 });
 
+describe("session facade background task listing", () => {
+  // 快照直读投影（docs/cli-tui-activity-visibility.md）：只做展示排序——running 优先，
+  // 同组按开始时间倒序；不复制状态、不重算事实。
+  it("lists projection background tasks running-first, newest started next", async () => {
+    const startedAt = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000);
+    const facade = createSessionFacade({
+      configResult: { config: DefaultRuntimeConfig },
+      sessionId: "tasks-session",
+      traceContext: { traceId: "tasks" },
+      runtime: {
+        getProjection: async () => ({
+          backgroundTasks: [
+            { taskId: "exec_old_done", status: "completed", startedAt: startedAt(1) },
+            { taskId: "exec_new_run", status: "running", startedAt: startedAt(1) },
+            { taskId: "exec_older_run", status: "running", startedAt: startedAt(9) },
+            { taskId: "exec_nostart", status: "failed" },
+          ],
+        }),
+      },
+      logger: { info: vi.fn(), warn: vi.fn() },
+    } as never);
+
+    const tasks = (await facade.listBackgroundTasks?.()) ?? [];
+    expect(tasks.map((task) => task.taskId)).toEqual([
+      "exec_new_run",
+      "exec_older_run",
+      "exec_old_done",
+      "exec_nostart",
+    ]);
+  });
+});
+
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   const promise = new Promise<T>((settle) => {

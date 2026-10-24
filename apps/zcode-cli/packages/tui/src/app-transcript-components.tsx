@@ -1,3 +1,4 @@
+import type { ScrollBoxRenderable } from "@mbears/opentui-core";
 import React from "react";
 import type { TuiCopy } from "@zcode/i18n";
 import type { Message } from "./app-model.js";
@@ -26,6 +27,7 @@ export function ContentPane({
   id,
   focused,
   messages,
+  scrollRef,
   terminalWidth = 100,
   workflowCardsByToolCallId,
 }: {
@@ -36,6 +38,8 @@ export function ContentPane({
   id?: string;
   focused: boolean;
   messages: Message[];
+  /** 主转写滚动实例出口（滚到底快捷键用）；子代理视图不传，走自身焦点滚动。 */
+  scrollRef?: (instance: ScrollBoxRenderable | null) => void;
   terminalWidth?: number;
   workflowCardsByToolCallId?: ReadonlyMap<string, TuiWorkflowCard>;
 }): React.ReactElement {
@@ -44,6 +48,7 @@ export function ContentPane({
     {
       id,
       focused,
+      ref: scrollRef,
       stickyScroll: true,
       stickyStart: "bottom",
       viewportCulling: true,

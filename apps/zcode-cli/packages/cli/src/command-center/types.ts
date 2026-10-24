@@ -11,6 +11,7 @@ import type { ModelSelection, ZCodeModelOption } from "@zcode/shared";
 import type { DynamicWorkflowMode } from "@zcode/shared";
 import type {
   BackgroundTaskCancelResult,
+  BackgroundTaskInfo,
   DynamicWorkflowRunResumeResult,
   DynamicWorkflowRunProgressPayload,
   DynamicWorkflowRunSessionSummary,
@@ -251,6 +252,11 @@ export type CommandCenterApp = {
    * workflow run 的取消面，服务 `/dwf cancel`。runId ≡ taskId ≡ workId（同一把标识）。
    */
   cancelBackgroundTask?(taskId: string): Promise<BackgroundTaskCancelResult>;
+  /**
+   * 后台任务快照枚举面，服务 `/tasks` 与 TUI 指示行。事实源 = runtime 投影
+   * （docs/cli-tui-activity-visibility.md）；缺席 = 能力缺席，命令回「不可用」。
+   */
+  listBackgroundTasks?(): Promise<BackgroundTaskInfo[]>;
   /**
    * workflow run 的恢复面，服务 `/dwf resume`。失败走结构化 reason 而不是 throw，
    * 命令原样呈现服务端裁定——`resumable` 绝不在客户端重新推导。

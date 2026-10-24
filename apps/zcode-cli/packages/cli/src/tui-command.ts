@@ -95,6 +95,7 @@ export const runTuiCommand = async (
         listWorkspacePathSuggestions: createWorkspacePathSuggestionProvider({
           workspaceDirectory,
         }),
+        listBackgroundTasks: promptHandler.listBackgroundTasks,
         listMcpServers: promptHandler.listMcpServers,
         readSubagents: promptHandler.readSubagents,
         readSubagentTranscript: promptHandler.readSubagentTranscript,

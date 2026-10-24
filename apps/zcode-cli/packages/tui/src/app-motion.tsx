@@ -154,6 +154,35 @@ export function spinnerFrame(frameMs: number): string {
   return SPINNER_FRAMES[frameIndex] ?? SPINNER_FRAMES[0];
 }
 
+export const THINKING_DOTS_INTERVAL_MS = 400;
+const THINKING_DOTS_FRAMES = [".", "..", "..."] as const;
+
+export function useThinkingDots(animated: boolean): string {
+  const [frameMs, setFrameMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!animated) return undefined;
+    const timer = setInterval(() => {
+      setFrameMs(Date.now());
+    }, THINKING_DOTS_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [animated]);
+
+  return thinkingDotsFrame(frameMs);
+}
+
+/** 纯函数帧：busy 状态文本剥掉尾部省略号后接动态点（. → .. → ...），让"还在跑"可见。 */
+export function thinkingDotsFrame(frameMs: number): string {
+  const periodMs = THINKING_DOTS_INTERVAL_MS * THINKING_DOTS_FRAMES.length;
+  const frameIndex = Math.floor(positiveModulo(frameMs, periodMs) / THINKING_DOTS_INTERVAL_MS);
+  return THINKING_DOTS_FRAMES[frameIndex] ?? THINKING_DOTS_FRAMES[0];
+}
+
+/** 剥掉状态文本尾部的省略号（... / … / 。，句号形态只处理 ASCII 与单字符 …）。 */
+export function stripTrailingEllipsis(text: string): string {
+  return text.replace(/(?:\.\.\.|…)+$/u, "").trimEnd();
+}
+
 function shimmerIntensity(distance: number): number {
   if (distance > SHIMMER_BAND_HALF_WIDTH) return 0;
   const x = Math.PI * (distance / SHIMMER_BAND_HALF_WIDTH);

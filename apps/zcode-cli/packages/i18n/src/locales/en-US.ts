@@ -83,6 +83,12 @@ Slash Commands:
     },
     input: {
       activeStatusHint: "esc to interrupt",
+      backgroundTasksCtrlCConfirm: (count) =>
+        `${count} background task${count === 1 ? "" : "s"} running — Ctrl-C again to exit and terminate ${count === 1 ? "it" : "them"}.`,
+      backgroundTasksExitConfirm: (count) =>
+        `${count} background task${count === 1 ? "" : "s"} still running — exiting will terminate ${count === 1 ? "it" : "them"}. /exit again to confirm.`,
+      backgroundTasksRunning: (count, longest) =>
+        `⏳ ${count} background task${count === 1 ? "" : "s"} running (${longest}) — /tasks to inspect`,
       busyPlaceholder: "Type to queue input",
       placeholder: "Type a prompt",
       queuedMore: (count) => `+ ${count} more queued`,

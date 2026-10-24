@@ -3,6 +3,7 @@ import type {
   AgentTelemetryRuntimeOwner,
   AutomationPort,
   BackgroundTaskCancelResult,
+  BackgroundTaskInfo,
   BrowserControlPort,
   CollaborationMode,
   ContextSourcePort,
@@ -505,6 +506,11 @@ export interface ZCodeApp {
     options?: { signal?: AbortSignal },
   ): Promise<McpReadResourceResult>;
   readBackgroundBashOutput(workId: string, sessionId?: string): Promise<BackgroundBashOutputResult>;
+  /**
+   * 后台任务全量快照（事实源 = runtime 投影 backgroundTasks，TUI 指示行与 /tasks 的
+   * 唯一数据口）。同步语义但走 Promise 以对齐 facade 其余查询；running 优先排序。
+   */
+  listBackgroundTasks?(): Promise<BackgroundTaskInfo[]>;
   cancelBackgroundTask?(
     taskId: string,
     options?: { traceContext?: TraceContext },

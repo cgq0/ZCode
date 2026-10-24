@@ -1,4 +1,5 @@
-import type { ModelUsageSummary, TodoItem, TurnId } from "@zcode/contracts";
+import type { ScrollBoxRenderable } from "@mbears/opentui-core";
+import type { ModelUsageSummary, SessionEvent, TodoItem, TurnId } from "@zcode/contracts";
 import { getZCodeCopy } from "@zcode/i18n";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import { AppView } from "./app-view.js";
@@ -35,6 +36,7 @@ import { useTuiThemeSync } from "./app-theme-sync.js";
 import { useSessionEventApplier } from "./app-session-event-handler.js";
 import { useTuiWorkflowRuns } from "./app-workflow-controller.js";
 import { useTuiApplyResult } from "./app-result.js";
+import { useBackgroundTasks } from "./app-background-tasks.js";
 import { useSubagents } from "./app-subagents.js";
 import type { TuiOptions } from "./types.js";
 
@@ -101,8 +103,16 @@ export function TuiApp({
   const workflowRuns = useTuiWorkflowRuns({ copy: copy.tui, options, setMessages });
   const sidebar = useSidebarController();
   const subagents = useSubagents(options);
+  const backgroundTasks = useBackgroundTasks(options);
+  const attachTranscriptScroll = useCallback((instance: ScrollBoxRenderable | null) => {
+    transcriptScrollRef.current = instance;
+  }, []);
 
   const abortControllerRef = useRef<AbortController | undefined>(undefined);
+
+  // 主转写滚动实例（Ctrl/Option+End 滚到底、Ctrl/Option+Home 置顶）；ref 线程见 docs/cli-tui-activity-visibility.md
+
+  const transcriptScrollRef = useRef<ScrollBoxRenderable | null>(null);
   const draftRef = useRef("");
   const draftAttachmentsRef = useRef<DraftAttachment[]>([]);
   const inputEditorRef = useRef<PromptInputEditor | null>(null);
@@ -170,6 +180,7 @@ export function TuiApp({
 
   const applyResult = useTuiApplyResult({
     fallback: { locale, loginRequired, mode, model },
+    getRunningBackgroundTaskCount: () => backgroundTasks.running.length,
     modifiedFileToolCallIds: modifiedFileToolCallIdsRef.current,
     onExit,
     setActiveTurnId,
@@ -197,9 +208,17 @@ export function TuiApp({
     workspaceDirectory: options.workspaceDirectory,
   });
 
+  const observeSessionEvents = React.useCallback(
+    (event: SessionEvent) => {
+      subagents.onEvent(event);
+      backgroundTasks.onEvent(event);
+    },
+    [subagents.onEvent, backgroundTasks.onEvent],
+  );
+
   const applySessionEvent = useSessionEventApplier({
     subscribeSessionEvents: options.subscribeSessionEvents,
-    observeSessionEvent: subagents.onEvent,
+    observeSessionEvent: observeSessionEvents,
     copy: copy.tui,
     getMainSessionId: options.getMainSessionId,
     setActiveTurnId,
@@ -335,6 +354,9 @@ export function TuiApp({
     readOnlyView: subagents.selected ? { back: subagents.back } : undefined,
     abortControllerRef,
     approvalQueue,
+    backgroundTasksRunningCount: backgroundTasks.running.length,
+    formatRunningBackgroundTasksExitPrompt: copy.tui.input.backgroundTasksCtrlCConfirm,
+    transcriptScrollRef,
     busy,
     copyCurrentSelection,
     effortSelection: effortCommand.selection,
@@ -375,7 +397,9 @@ export function TuiApp({
     toggleSidebar: sidebar.toggleSidebar,
     activeTurnId,
     approvalQueue,
+    backgroundTasks: backgroundTasks.tasks,
     busy,
+    transcriptScrollRef: attachTranscriptScroll,
     cacheStats,
     contextUsage,
     copy: copy.tui,

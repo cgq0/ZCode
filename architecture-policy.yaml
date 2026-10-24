@@ -902,3 +902,10 @@ exceptions:
     paths:
       - apps/zcode-cli/packages/cli/src/tui-prompt-handler-queries.ts
     reason: Admitted upstream query file gains one read-only projection passthrough in readTuiSessionMetadata so the CLI TUI context badge can be seeded at startup (/new, /resume); the file stays an app-read-only query surface with no new write path, and adopting apps/zcode-cli needs a separate module boundary refactor (docs/superpowers/specs/2026-10-22-tui-context-badge-startup-seeding-design.md).
+  - id: cli-tui-activity-visibility-unmanaged-new-files
+    rule: unmanaged-new-file
+    paths:
+      - apps/zcode-cli/packages/cli/src/command-center/handlers/tasks.ts
+      - apps/zcode-cli/packages/tui/src/app-background-tasks.ts
+      - apps/zcode-cli/packages/tui/src/app-background-task-hint.tsx
+    reason: Fork own-run feature (docs/cli-tui-activity-visibility.md) adds three leaf files in admitted upstream directories — a read-only /tasks command handler querying the existing facade listBackgroundTasks projection snapshot, a TUI hook that mirrors the same snapshot behind BackgroundTask* lifecycle events, and its one-line hint component; no new write path, and adopting apps/zcode-cli needs a separate module boundary refactor.

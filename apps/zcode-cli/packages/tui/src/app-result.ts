@@ -11,6 +11,10 @@ import type {
   QueuedInput,
   SelectionState,
 } from "./app-model.js";
+import {
+  createExitWithTasksGuard,
+  resolveExitWithTasksIntent,
+} from "./app-keyboard-helpers.js";
 import { appendAgentResult } from "./app-submit.js";
 import { createSelectionState } from "./app-selection-state.js";
 import type { TuiOptions, TuiSubmitPromptResult } from "./types.js";
@@ -40,6 +44,8 @@ type TuiApplyResultInput = {
   setQueuedInputs: React.Dispatch<React.SetStateAction<QueuedInput[]>>;
   setSelection: React.Dispatch<React.SetStateAction<SelectionState | undefined>>;
   setStatus: (status: string) => void;
+  /** 确认时点重读运行中后台任务数（默认 0 = 无守卫），与指示行同一份状态。 */
+  getRunningBackgroundTaskCount?: () => number;
   setThoughtLevel: (thoughtLevel: string) => void;
   setTodos: React.Dispatch<React.SetStateAction<TodoItem[]>>;
   setTraceId: (traceId: string | undefined) => void;
@@ -52,11 +58,24 @@ type TuiApplyResultInput = {
 };
 
 export function useTuiApplyResult(input: TuiApplyResultInput) {
+  const exitTasksGuardRef = React.useRef(createExitWithTasksGuard());
   return React.useCallback(
     (result: TuiSubmitPromptResult, preserveTurnState = false) => {
       // 两条产生 result 的路径（空闲 submit、busy sendInput 的 command_result）都汇入这里，
       // 消费点必须唯一且在 preserveTurnState 早退之前：exit 一到就终止，不再写任何状态。
       if (result.exit === true) {
+        // 后台任务二次确认：确认时点重读计数（任务可能刚好跑完则直接放行），
+        // 窗口复用 Ctrl+C 双击的 2s；守卫挂在 hook 闭包外的 ref 上跨渲染保持。
+        const intent = resolveExitWithTasksIntent(
+          exitTasksGuardRef.current,
+          Date.now(),
+          input.getRunningBackgroundTaskCount?.() ?? 0,
+        );
+        if (intent === "show_prompt") {
+          const count = input.getRunningBackgroundTaskCount?.() ?? 0;
+          input.setStatus(getZCodeCopy(input.fallback.locale).tui.input.backgroundTasksExitConfirm(count));
+          return;
+        }
         input.turnRef.current?.abort();
         input.onExit(0);
         return;

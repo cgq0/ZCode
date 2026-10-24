@@ -166,6 +166,15 @@ export function parseSlashCommand(input: string): SlashCommand | null {
     };
   }
 
+  if (rawName === "tasks") {
+    return {
+      args,
+      name: "tasks",
+      rawName,
+      type: "known",
+    };
+  }
+
   if (rawName === "exit" || rawName === "quit") {
     return {
       args,

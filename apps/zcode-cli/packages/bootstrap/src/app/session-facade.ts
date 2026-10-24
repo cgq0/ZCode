@@ -4,6 +4,7 @@ import {
   resolveMcpToolVisibility,
   SESSION_ENTRY_MODEL_SELECTION,
   traceContextToLogContext,
+  type BackgroundTaskInfo,
   type CollaborationMode,
   type ExecutionPort,
   type GoalStatus,
@@ -53,6 +54,7 @@ import type { CliDefaultSelection } from "./cli-default-selection.js";
 type SessionFacade = Pick<
   ZCodeApp,
   | "readBackgroundBashOutput"
+  | "listBackgroundTasks"
   | "cancelBackgroundTask"
   | "clearTarget"
   | "close"
@@ -559,6 +561,17 @@ export function createSessionFacade(deps: CreateSessionFacadeDeps): SessionFacad
     },
     readBackgroundBashOutput: (workId, sessionId) =>
       deps.runtime.readBackgroundBashOutput(workId, sessionId),
+    listBackgroundTasks: async () => {
+      // 事实源 = runtime 投影 backgroundTasks（与桌面 v4 协议同一份），这里只做展示
+      // 排序：running 优先，同组按开始时间倒序。不复制状态、不发起新查询。
+      const projection = await deps.runtime.getProjection();
+      const runningScore = (task: BackgroundTaskInfo): number =>
+        task.status === "running" ? 0 : 1;
+      return [...projection.backgroundTasks].sort((a, b) => {
+        if (runningScore(a) !== runningScore(b)) return runningScore(a) - runningScore(b);
+        return (b.startedAt?.getTime() ?? 0) - (a.startedAt?.getTime() ?? 0);
+      });
+    },
     cancelBackgroundTask: async (taskId, options) =>
       deps.runtime.cancelBackgroundTask(taskId, {
         traceContext: options?.traceContext ?? deps.traceContext,

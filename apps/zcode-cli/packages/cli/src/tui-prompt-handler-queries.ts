@@ -66,6 +66,12 @@ export const attachTuiAppQueries = (
     return activeApp.listMcpServers?.() ?? {};
   };
 
+  submitPrompt.listBackgroundTasks = async () => {
+    const activeApp = await getApp();
+    // 事实源 = runtime 投影（facade 排序后返回）；缺席是能力缺席，回空表不报错。
+    return (await activeApp.listBackgroundTasks?.()) ?? [];
+  };
+
   submitPrompt.listWorkflowRuns = async () => {
     const activeApp = await getApp();
     // 会话级摘要；服务端已按「最近更新在前」给序，读侧不重排（端口注释的裁定）。

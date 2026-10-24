@@ -134,3 +134,38 @@ export function resolveCtrlCExitIntent(
 export function resetCtrlCExitGuard(guard: CtrlCExitGuard): void {
   guard.lastPressAtMs = undefined;
 }
+
+/** /exit 带后台任务的二次确认意图（docs/cli-tui-activity-visibility.md）。 */
+export type ExitWithTasksIntent = "exit" | "confirm_exit" | "show_prompt";
+
+export type ExitWithTasksGuard = {
+  lastExitAtMs: number | undefined;
+};
+
+export function createExitWithTasksGuard(): ExitWithTasksGuard {
+  return { lastExitAtMs: undefined };
+}
+
+/**
+ * 语义：无运行中任务 → 直接放行（顺手清守卫）；窗口内有第二次 /exit → 确认放行；
+ * 其余 → 首次提示。runningCount 必须由调用方在当下读取（确认时重读防 stale），
+ * 守卫只管时间窗，与 resolveCtrlCExitIntent 同构。
+ */
+export function resolveExitWithTasksIntent(
+  guard: ExitWithTasksGuard,
+  nowMs: number,
+  runningCount: number,
+  windowMs = CTRL_C_EXIT_CONFIRMATION_WINDOW_MS,
+): ExitWithTasksIntent {
+  if (runningCount <= 0) {
+    guard.lastExitAtMs = undefined;
+    return "exit";
+  }
+  const elapsedMs = guard.lastExitAtMs === undefined ? undefined : nowMs - guard.lastExitAtMs;
+  if (elapsedMs !== undefined && elapsedMs >= 0 && elapsedMs <= windowMs) {
+    guard.lastExitAtMs = undefined;
+    return "confirm_exit";
+  }
+  guard.lastExitAtMs = nowMs;
+  return "show_prompt";
+}

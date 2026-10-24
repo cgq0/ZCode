@@ -1,4 +1,4 @@
-import type { KeyEvent } from "@mbears/opentui-core";
+import type { KeyEvent, ScrollBoxRenderable } from "@mbears/opentui-core";
 import type { TuiWorkflowExpansionControls } from "./app-workflow-controller.js";
 import { useKeyboard } from "@mbears/opentui-react";
 import { useCallback, useRef } from "react";
@@ -58,6 +58,11 @@ type UseTuiKeyboardControlsOptions = {
   abortControllerRef: MutableRefObject<AbortController | undefined>;
   approvalQueue: ApprovalPrompt[];
   busy: boolean;
+  /** 运行中后台任务数（与指示行同一份状态）；>0 时 Ctrl+C 首按文案带终止警示。 */
+  backgroundTasksRunningCount?: number;
+  formatRunningBackgroundTasksExitPrompt?: (count: number) => string;
+  /** 主转写滚动实例；Ctrl/Option+End 滚到底、+Home 置顶（docs/cli-tui-activity-visibility.md）。 */
+  transcriptScrollRef?: MutableRefObject<ScrollBoxRenderable | null>;
   copyCurrentSelection: () => boolean;
   draftValue: string;
   workflowExpansion?: TuiWorkflowExpansionControls;
@@ -97,6 +102,9 @@ export function useTuiKeyboardControls({
   abortControllerRef,
   approvalQueue,
   busy,
+  backgroundTasksRunningCount = 0,
+  formatRunningBackgroundTasksExitPrompt,
+  transcriptScrollRef,
   copyCurrentSelection,
   draftValue,
   workflowExpansion,
@@ -198,6 +206,19 @@ export function useTuiKeyboardControls({
           return;
         }
 
+        // 主转写不持有焦点（composer 独占），键盘滚动在此全局层接：修饰键 + End/Home
+        // 直接 scrollBy 整页内容量；到底自动恢复 sticky 跟随。普通 End/Home 不拦
+        // （composer 光标移动），readOnly 模式也不拦（fall-through 给子代理 scrollbox）。
+        if (
+          (key.name === "end" || key.name === "home") &&
+          (key.ctrl || key.meta || key.option) &&
+          transcriptScrollRef?.current
+        ) {
+          consumeKey(key);
+          transcriptScrollRef.current.scrollBy(key.name === "end" ? 1 : -1, "content");
+          return;
+        }
+
         if (key.name === "c" && key.ctrl) {
           consumeKey(key);
           if (copyCurrentSelection()) {
@@ -220,7 +241,11 @@ export function useTuiKeyboardControls({
             return;
           }
 
-          setStatus(CTRL_C_EXIT_PROMPT);
+          setStatus(
+            backgroundTasksRunningCount > 0 && formatRunningBackgroundTasksExitPrompt
+              ? formatRunningBackgroundTasksExitPrompt(backgroundTasksRunningCount)
+              : CTRL_C_EXIT_PROMPT,
+          );
           return;
         }
 
@@ -381,6 +406,9 @@ export function useTuiKeyboardControls({
         approvalQueue,
         workflowExpansion,
         busy,
+        backgroundTasksRunningCount,
+        formatRunningBackgroundTasksExitPrompt,
+        transcriptScrollRef,
         copyCurrentSelection,
         draftValue,
         effortSelection,

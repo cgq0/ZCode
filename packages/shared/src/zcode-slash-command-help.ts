@@ -158,6 +158,15 @@ export const BUILTIN_ZCODE_SLASH_COMMAND_HELP_ENTRIES: readonly BuiltinZCodeSlas
     usage: "/resume [sessionId]",
   },
   {
+    details: [
+      "Lists background tasks with status, elapsed time, and command by default.",
+      "Use cancel with a task id (prefix match) to cancel a running task.",
+    ],
+    name: "tasks",
+    summary: "List or cancel background tasks.",
+    usage: "/tasks [list|cancel <taskId>]",
+  },
+  {
     aliases: ["quit"],
     details: [
       "Exits the interactive TUI with exit code 0; a running agent turn is interrupted first.",

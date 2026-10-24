@@ -129,6 +129,12 @@ export type SlashCommand =
     }
   | {
       args: string;
+      name: "tasks";
+      rawName: string;
+      type: "known";
+    }
+  | {
+      args: string;
       rawName: string;
       type: "unknown";
     };
