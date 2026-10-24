@@ -2125,9 +2125,12 @@ app.whenReady().then(async () => {
     // macOS 遮挡节流启动协调（spec：docs/desktop/mac-occlusion-throttling.md）：
     // 设置只表达"下次启动期望"；argv 与期望不一致时在创建任何窗口前 relaunch 一次。
     // 不走 JS appendSwitch——浏览器进程 FeatureList 在 JS 之前已冻结，写它无效。
+    // 仅打包版协调：dev 的 watch 组（concurrently -k）拥有进程生命周期，应用自
+    // relaunch 会拆掉整个开发会话（实测 dev:runtime 因此整体退出）。
     // 失败只 warn 不阻断启动；app.quit() 会终止本回调，return 防御性跳过剩余初始化。
     const occlusionRelaunchArgs = resolveMacOcclusionThrottleRelaunchArgs({
       platform: process.platform,
+      isPackaged: app.isPackaged,
       enabled: bootstrapSettings.desktopMacOcclusionThrottlingEnabled,
       argv: process.argv,
     });

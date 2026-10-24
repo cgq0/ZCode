@@ -48,7 +48,7 @@ Electron PR #50579（2026-03-30 合入，回移 41-x-y）修复可见性根因�
 ## 启动协调（argv 与期望对齐）
 
 ```text
-main whenReady（darwin、持有单实例锁、任何窗口创建之前）
+main whenReady（打包版 + darwin + 持有单实例锁 + 任何窗口创建之前）
   → 读 setting.json → 期望 = desktopMacOcclusionThrottlingEnabled（缺省 true）
   → 扫描 process.argv（跳过 argv[0]）：
       哨兵 --zcode-mac-occlusion-injected 在场？──是──> 我方上次注入生效中
@@ -66,6 +66,10 @@ main whenReady（darwin、持有单实例锁、任何窗口创建之前）
 
 不变量与边界：
 
+- **dev（未打包）恒 no-op**：dev 的 watch 组（`concurrently -k`）拥有进程生命
+  周期，应用自 relaunch 会连带杀掉 tsup/vite，重启出的实例失去 dev server（实测
+  `dev:runtime` 整体退出）。dev 下开关期望由开发者手动重启生效；开关的注入/剥离
+  验收在打包版进行。
 - **循环安全**：协调仅由"argv 状态 ≠ 期望"触发；relaunch 后必然匹配，每次状态
   变更至多一次 bounce（发生在窗口创建前，不闪窗）。
 - **单实例锁**：Electron `app.relaunch` 在当前实例退出后才拉起新实例，天然避开

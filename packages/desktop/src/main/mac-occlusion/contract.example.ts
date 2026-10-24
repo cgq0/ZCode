@@ -4,12 +4,13 @@
 import { resolveMacOcclusionThrottleRelaunchArgs } from "./contract.js";
 
 /**
- * main 进程 whenReady 内的典型调用：设置读取失败或非 darwin 都拿到 undefined，
+ * main 进程 whenReady 内的典型调用：非 darwin / dev（未打包）都拿到 undefined，
  * 只有 argv 与期望不一致时才 relaunch（args 不含 argv[0]，直接交给 app.relaunch）。
  */
 export function exampleDesktopMacOcclusionLaunch(): void {
   const relaunchArgs = resolveMacOcclusionThrottleRelaunchArgs({
     platform: process.platform,
+    isPackaged: true, // 实际调用传 app.isPackaged；dev（未打包）恒 no-op。
     enabled: true,
     argv: process.argv,
   });

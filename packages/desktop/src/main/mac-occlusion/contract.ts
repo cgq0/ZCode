@@ -55,6 +55,8 @@ export function parseMacOcclusionArgsState(args: readonly string[]): MacOcclusio
 
 export interface MacOcclusionThrottleRelaunchInput {
   platform: NodeJS.Platform;
+  /** 打包版才做协调；dev 的 watch 组（concurrently -k）拥有进程生命周期，应用自 relaunch 会拆掉整个开发会话。 */
+  isPackaged: boolean;
   /** setting.json 的 desktopMacOcclusionThrottlingEnabled；undefined 视为缺省 true。 */
   enabled: boolean | undefined;
   /** process.argv（含 argv[0] 可执行路径）。 */
@@ -64,11 +66,12 @@ export interface MacOcclusionThrottleRelaunchInput {
 /**
  * 返回 relaunch 应使用的 args（不含 argv[0]）；无需变更时返回 undefined。
  * 循环安全：判定只依赖 argv 状态，relaunch 后必然命中"已匹配"分支。
+ * dev（未打包）恒 no-op：开关期望由开发者手动重启生效，或留给打包版协调。
  */
 export function resolveMacOcclusionThrottleRelaunchArgs(
   input: MacOcclusionThrottleRelaunchInput,
 ): string[] | undefined {
-  if (input.platform !== "darwin") return undefined;
+  if (input.platform !== "darwin" || !input.isPackaged) return undefined;
   const enabled = input.enabled ?? true;
   const args = input.argv.slice(1);
   const state = parseMacOcclusionArgsState(args);

@@ -56,19 +56,58 @@ describe("parseMacOcclusionArgsState", () => {
 describe("resolveMacOcclusionThrottleRelaunchArgs", () => {
   it("非 darwin 平台恒 no-op", () => {
     expect(
-      resolveMacOcclusionThrottleRelaunchArgs({ platform: "win32", enabled: false, argv: [EXEC] }),
+      resolveMacOcclusionThrottleRelaunchArgs({
+        platform: "win32",
+        isPackaged: true,
+        enabled: false,
+        argv: [EXEC],
+      }),
     ).toBeUndefined();
     expect(
-      resolveMacOcclusionThrottleRelaunchArgs({ platform: "linux", enabled: false, argv: [EXEC] }),
+      resolveMacOcclusionThrottleRelaunchArgs({
+        platform: "linux",
+        isPackaged: true,
+        enabled: false,
+        argv: [EXEC],
+      }),
+    ).toBeUndefined();
+  });
+
+  it("dev（未打包）恒 no-op：watch 组拥有进程生命周期，应用自 relaunch 会拆掉开发会话", () => {
+    expect(
+      resolveMacOcclusionThrottleRelaunchArgs({
+        platform: "darwin",
+        isPackaged: false,
+        enabled: false,
+        argv: [EXEC],
+      }),
+    ).toBeUndefined();
+    expect(
+      resolveMacOcclusionThrottleRelaunchArgs({
+        platform: "darwin",
+        isPackaged: false,
+        enabled: true,
+        argv: [EXEC, MAC_OCCLUSION_DISABLE_FEATURES_ARG, MAC_OCCLUSION_INJECTED_SENTINEL],
+      }),
     ).toBeUndefined();
   });
 
   it("缺省/true 且无注入对：直接启动（Chromium 默认），零 bounce", () => {
     expect(
-      resolveMacOcclusionThrottleRelaunchArgs({ platform: "darwin", enabled: undefined, argv: [EXEC] }),
+      resolveMacOcclusionThrottleRelaunchArgs({
+        platform: "darwin",
+        isPackaged: true,
+        enabled: undefined,
+        argv: [EXEC],
+      }),
     ).toBeUndefined();
     expect(
-      resolveMacOcclusionThrottleRelaunchArgs({ platform: "darwin", enabled: true, argv: [EXEC] }),
+      resolveMacOcclusionThrottleRelaunchArgs({
+        platform: "darwin",
+        isPackaged: true,
+        enabled: true,
+        argv: [EXEC],
+      }),
     ).toBeUndefined();
   });
 
@@ -76,6 +115,7 @@ describe("resolveMacOcclusionThrottleRelaunchArgs", () => {
     expect(
       resolveMacOcclusionThrottleRelaunchArgs({
         platform: "darwin",
+        isPackaged: true,
         enabled: false,
         argv: [EXEC, "--some-flag"],
       }),
@@ -86,6 +126,7 @@ describe("resolveMacOcclusionThrottleRelaunchArgs", () => {
     expect(
       resolveMacOcclusionThrottleRelaunchArgs({
         platform: "darwin",
+        isPackaged: true,
         enabled: false,
         argv: [EXEC, MAC_OCCLUSION_DISABLE_FEATURES_ARG, MAC_OCCLUSION_INJECTED_SENTINEL],
       }),
@@ -96,6 +137,7 @@ describe("resolveMacOcclusionThrottleRelaunchArgs", () => {
     expect(
       resolveMacOcclusionThrottleRelaunchArgs({
         platform: "darwin",
+        isPackaged: true,
         enabled: true,
         argv: [EXEC, MAC_OCCLUSION_DISABLE_FEATURES_ARG, MAC_OCCLUSION_INJECTED_SENTINEL],
       }),
@@ -106,6 +148,7 @@ describe("resolveMacOcclusionThrottleRelaunchArgs", () => {
     expect(
       resolveMacOcclusionThrottleRelaunchArgs({
         platform: "darwin",
+        isPackaged: true,
         enabled: false,
         argv: [EXEC, "--enable-features=SomeThing"],
       }),
@@ -113,6 +156,7 @@ describe("resolveMacOcclusionThrottleRelaunchArgs", () => {
     expect(
       resolveMacOcclusionThrottleRelaunchArgs({
         platform: "darwin",
+        isPackaged: true,
         enabled: false,
         argv: [EXEC, MAC_OCCLUSION_DISABLE_FEATURES_ARG],
       }),
@@ -123,6 +167,7 @@ describe("resolveMacOcclusionThrottleRelaunchArgs", () => {
     expect(
       resolveMacOcclusionThrottleRelaunchArgs({
         platform: "darwin",
+        isPackaged: true,
         enabled: true,
         argv: [
           EXEC,
