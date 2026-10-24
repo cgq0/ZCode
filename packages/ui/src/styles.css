@@ -925,7 +925,10 @@ html[data-document-hidden] *::after {
     -webkit-background-clip: text;
     color: transparent;
     -webkit-text-fill-color: transparent;
-    animation: gradient-flow 4s linear infinite;
+    /* 前台绘制预算（spec：docs/ui/foreground-animation-paint-budget.md）：background-position
+       不是合成器友好属性，linear 时每个渲染帧都重绘文字（~60fps）；steps(20) 把重绘降到
+       5 次/秒。循环时长不影响重绘频率，只有 steps 或停用动画才省。 */
+    animation: gradient-flow 4s steps(20) infinite;
     will-change: background-position;
     transform: translateZ(0);
     backface-visibility: hidden;
@@ -955,7 +958,8 @@ html[data-document-hidden] *::after {
     -webkit-background-clip: text;
     color: transparent;
     -webkit-text-fill-color: transparent;
-    animation: cua-group-gradient-flow 1s linear infinite;
+    /* 同 .animated-gradient-text：steps(8) 把重绘从 ~60fps 降到 8 次/秒（前台绘制预算）。 */
+    animation: cua-group-gradient-flow 1s steps(8) infinite;
     animation-delay: 0.5s;
     will-change: background-position;
     transform: translateZ(0);
@@ -995,7 +999,9 @@ html[data-document-hidden] *::after {
 
 /* 工具摘要行细进度条的 indeterminate 扫光（ToolCallProgressIndicator，第三批 R7）。 */
 .tool-call-progress-indeterminate {
-  animation: tool-call-progress-indeterminate 1.2s ease-in-out infinite;
+  /* 同 .animated-gradient-text：动画的是 left（布局属性）更不能逐帧跑，steps(12)
+     把重绘降到 10 次/秒（前台绘制预算，spec：docs/ui/foreground-animation-paint-budget.md）。 */
+  animation: tool-call-progress-indeterminate 1.2s steps(12) infinite;
 }
 
 @keyframes tool-call-progress-indeterminate {
