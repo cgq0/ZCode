@@ -70,6 +70,11 @@ jobs:
           - { os: macos-latest, target: darwin-arm64 }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
+    env:
+      # server stage 的 target 命名是 win32-*，与 CLI 矩阵的 win-x64 不同源。
+      # jobs.<job_id>.env 支持 matrix 上下文，且必须留在 job 级：打包步骤同样引用该值，
+      # 挪到 step 级会让下游拿不到（2026-10-24 首跑三腿同点位失败于 mv 空 target 路径）。
+      SERVER_TARGET: ${{ matrix.target == 'win-x64' && 'win32-x64' || matrix.target }}
     steps:
       # 必须全量历史 + tag：`+cq.<n>.g<sha>` fork 标识构建时跑 git describe 生成
       # （见 spec 2026-10-21-fork-build-metadata-version-identity），默认浅克隆无 tag
@@ -150,9 +155,7 @@ jobs:
         # 上游 desktop 远程部署同款 staged 发行包（随包 Node + 依赖闭包 + agent bundle +
         # 插件 + 原生搜索工具 + bin/zcode 启动器）。不做上游归档层（--no-archive
         # --skip-component-archives）：本 workflow 自行拼最终 zip，归档是重复功。
-        # server stage 的 target 命名是 win32-*，与 CLI 矩阵的 win-x64 不同源，这里映射。
-        env:
-          SERVER_TARGET: ${{ matrix.target == 'win-x64' && 'win32-x64' || matrix.target }}
+        # SERVER_TARGET（win32-* 映射）在 job 级 env 定义。
         run: pnpm --filter @zcode/server-cli exec tsx src/packaging/stageCli.ts --target ${{ env.SERVER_TARGET }} --no-archive --skip-component-archives
 
       - name: Build desktop app (darwin-x64)
@@ -196,11 +199,12 @@ jobs:
             cp -R "$app_path" "release-pkg/$(basename "$app_path")"
           fi
           # windows runner 的 git-bash 无 zip 命令，回退 7z（三平台镜像均预装）；
-          # ZCode.app 判断必须用 if——`[ -d ] && ...` 在无 .app 的 leg 会因 set -e 中断步骤
+          # ZCode.app 判断必须用 if——`[ -d ] && ...` 在无 .app 的 leg 会因 set -e 中断步骤；
+          # zip 的 -y 必须加：.app 框架内有符号链接，默认解引用会复制出双份内容并破坏 app 结构
           (cd release-pkg && if command -v zip > /dev/null 2>&1; then
             entries=("$inner" "zcode-server")
             if [ -d "ZCode.app" ]; then entries+=("ZCode.app"); fi
-            zip -qr "../$zipname" "${entries[@]}"
+            zip -qry "../$zipname" "${entries[@]}"
           else
             args=(a -tzip -bso0 "../$zipname" "$inner" "zcode-server")
             if [ -d "ZCode.app" ]; then args+=("ZCode.app"); fi
@@ -310,8 +314,8 @@ jobs:
           `--version`，桌面「关于」窗口版本号旁的 `· cq...`），与 zip 文件名、Release
           标题一致，用于确认拿到的是哪次构建。
 
-          macOS 首次运行被 Gatekeeper 拦截时：
-          `xattr -d com.apple.quarantine ./zcode-cli`（ZCode.app 同理对 .app 执行）。
+          macOS 首次运行被 Gatekeeper 拦截时清除隔离标记（-r 递归，对 .app 目录必须加）：
+          `xattr -rd com.apple.quarantine ./zcode-cli`；ZCode.app 同法指向 .app 路径。
           Windows SmartScreen 警告：二进制未做 Authenticode 签名，选「更多信息 → 仍要运行」。
           校验和见各 SHA256SUMS-<target>.txt（对象为对应 zip）。
           NOTES
