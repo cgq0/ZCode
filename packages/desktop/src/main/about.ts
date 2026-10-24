@@ -19,6 +19,7 @@ import { createCustomAboutDialogHtml } from "./aboutWindow.js";
 interface DesktopBuildMetadata {
   appVersion?: string;
   buildCommitId?: string;
+  forkBuildMeta?: string;
   buildTime?: string;
   electronBuilderVersion?: string;
 }
@@ -26,6 +27,7 @@ interface DesktopBuildMetadata {
 interface AboutSnapshot {
   appVersion: string;
   buildCommitId: string;
+  forkBuildMeta: string;
   buildTime: string;
   environment: string;
   electronVersion: string;
@@ -156,6 +158,8 @@ export function createAboutSnapshot(options: AboutSnapshotOptions = {}): AboutSn
   return {
     appVersion: normalizeValue(options.appVersion ?? buildMetadata?.appVersion ?? ZCODE_VERSION),
     buildCommitId: normalizeValue(buildMetadata?.buildCommitId ?? ZCODE_COMMIT),
+    // fork 身份可能缺（旧 build-meta / 无 git 环境），空串表示不展示，区别于 "unknown"。
+    forkBuildMeta: buildMetadata?.forkBuildMeta?.trim() ?? "",
     buildTime: normalizeValue(buildMetadata?.buildTime ?? ZCODE_BUILD_TIME),
     environment: normalizeValue(options.environment ?? ZCODE_ENV),
     electronVersion: normalizeValue(runtimeVersions.electron),
@@ -176,6 +180,7 @@ export function formatAboutDetail(snapshot: AboutSnapshot): string {
   return [
     `Version: ${snapshot.appVersion}`,
     `Commit: ${snapshot.buildCommitId}`,
+    ...(snapshot.forkBuildMeta ? [`Build Identity: ${snapshot.forkBuildMeta}`] : []),
     `Build Time: ${snapshot.buildTime}`,
     `Environment: ${snapshot.environment}`,
     "",
@@ -278,6 +283,7 @@ export async function showAboutDialog(
       createCustomAboutDialogHtml({
         applicationName: ABOUT_APPLICATION_NAME,
         appVersion: snapshot.appVersion,
+        forkBuildMeta: snapshot.forkBuildMeta,
         copyright: formatAboutCopyright(undefined, locale),
         optimizationLine: formatAboutOptimizationLine(snapshot, locale),
         versionLabel: aboutMessages.versionLabel,

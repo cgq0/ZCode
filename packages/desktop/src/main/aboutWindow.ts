@@ -1,6 +1,7 @@
 interface CustomAboutDialogHtmlInput {
   applicationName: string;
   appVersion: string;
+  forkBuildMeta: string;
   copyright: string;
   optimizationLine: string;
   versionLabel: string;
@@ -115,6 +116,12 @@ export function createCustomAboutDialogHtml(input: CustomAboutDialogHtmlInput): 
         letter-spacing: 0;
       }
 
+      .fork-meta {
+        font-size: 11px;
+        font-weight: 400;
+        color: #9a9a9a;
+      }
+
       .meta {
         margin-top: 28px;
         display: flex;
@@ -193,7 +200,13 @@ export function createCustomAboutDialogHtml(input: CustomAboutDialogHtmlInput): 
           </div>
           <h1 id="about-title" class="title">
             ${escapeHtml(input.applicationName)}<br />
-            ${escapeHtml(input.versionLabel)} ${escapeHtml(input.appVersion)}
+            ${escapeHtml(input.versionLabel)} ${escapeHtml(input.appVersion)}${
+              // fork 构建身份（cq.<n>.g<sha>）：与 cli/server --version、Release zip 名同源。
+              // 系统版本号（CFBundleShortVersionString）只能放纯数字三段，身份展示走这里。
+              input.forkBuildMeta
+                ? `<span class="fork-meta">· ${escapeHtml(input.forkBuildMeta)}</span>`
+                : ""
+            }
           </h1>
           <div class="meta">
             ${input.optimizationLine ? `<div>${escapeHtml(input.optimizationLine)}</div>` : ""}

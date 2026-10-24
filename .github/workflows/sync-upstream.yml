@@ -5,7 +5,7 @@
 # 策略：
 #   - 每日尝试 merge upstream/main，成功则 push 到本 fork 的 main
 #   - 合并冲突或上游重写历史 → 自动开 issue 通知人工处理，不推送任何变更
-#   - 合并成功后显式触发 release-cli（GITHUB_TOKEN 的 push 不会连锁触发其他
+#   - 合并成功后显式触发 release（GITHUB_TOKEN 的 push 不会连锁触发其他
 #     workflow，这是 GitHub 的防递归设计，必须手动 dispatch）
 # ============================================================================
 
@@ -70,7 +70,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh workflow run release-cli.yml --ref main
+        run: gh workflow run release.yml --ref main
 
       - name: Create sync-conflict label if missing
         if: steps.sync.outputs.status == 'conflict'

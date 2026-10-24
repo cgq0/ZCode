@@ -1,0 +1,337 @@
+# ============================================================================
+# release — cgq0 fork 专属 CI：构建 cli / server / desktop 三产物并发布 Release
+#
+# 注意：GitHub 只从 <默认分支>/.github/workflows/ 读取 workflow，本文件无法收进
+# cgq0/ 命名空间——这是 cgq0/ 隔离原则的唯一例外。上游当前没有 .github 目录，
+# 新文件不产生合并冲突；上游代码不依赖本文件。
+#
+# 发版形态（2026-10-24 裁决，见 cgq0/docs/diary/2026-10-24.mac.md）：
+#   - 每平台一条 zip：zcode-v<版本>-cq.<n>.g<sha>-<target>.zip，包内文件名不带版本：
+#     zcode-cli（win: zcode-cli.exe）、zcode-server/（staged 发行目录，自带 Node
+#     v22.16.0），darwin-x64 额外含 ZCode.app（桌面只打 x86 mac，省 runner 配额）。
+#   - 三产物版本统一为 monorepo 根版本 3.16.2 + `+cq.<n>.g<sha>`：cli 由 build.mjs
+#     注入（base 从根 package.json 读取）；desktop 由 build-metadata.mjs 写入
+#     build-meta.json（About 展示）；server stage 本就读根版本。Release tag、zip
+#     文件名、二进制 --version、桌面 About 四处身份一致。
+#   - tag 恒为 v<根 package.json 版本号>（2026-10-24 起，此前为 zcode-cli-v*；改名后
+#     git describe 的 cq.<n> 基线重算一次，一次性跳变，无实际影响）。
+#   - 每次 push 刷新标题/说明并整体替换资产；旧构建经 Actions run artifacts 回溯
+#     （保留 14 天），Release 页面不累积。
+#
+# 构建链路（全部来自上游自带脚本，无自定义构建逻辑）：
+#   cli     pnpm --filter "@zcode/cli..." build → tsc shared dist → 插件 dist →
+#           pnpm --filter @zcode/cli sea --target T（Node SEA 单文件）
+#   server  pnpm --filter @zcode/server-cli build →
+#           exec tsx src/packaging/stageCli.ts --target T（desktop 远程部署同款
+#           staged 发行包：随包 Node + 依赖闭包 + agent bundle + 插件 + 原生搜索工具）
+#   desktop packages/desktop/scripts/bundle.mjs --os mac --arch x64（上游正式打包入口：
+#           runtime assets + production build + electron-builder + 运行时闭包校验）。
+#           必须走 bundle.mjs 而非裸 electron-builder：electron-builder.config.js 的
+#           platform/arch 来自 target-platform.mjs 读 ZCODE_TARGET_OS/ARCH env，
+#           裸 CLI flags 不会让 config hooks 用对 arch。macos-13（Intel）runner 已
+#           退役，在 macos-latest（arm64）上交叉打 x64；若交叉产物异常，后备
+#           macos-15-intel（原生 x64，2027 秋前可用但偏慢）。
+#   注意：不要用上游的 build:sea 脚本——它末尾固定 `node scripts/build-sea.mjs --all`，
+#   会在每个 runner 上重复构建全部 6 个目标（还包含大量跨平台无意义工作）。
+#
+# 平台矩阵：linux-x64 / win-x64 / darwin-x64（+desktop）/ darwin-arm64。
+# darwin 目标必须在 macOS runner 上构建（SEA 注入后需 codesign 临时签名）。
+# ============================================================================
+
+name: release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "cgq0/**"
+      - "**/*.md"
+      - "AGENTS.md"
+  workflow_dispatch:
+    # 固定 Release 语义下每次 push 都刷新资产，无需 force 开关；dispatch 仅作手动重跑。
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: linux-x64 }
+          - { os: windows-latest, target: win-x64 }
+          # 桌面只打 x86 mac（2026-10-24 裁决）；arm64 runner 上交叉构建 x64
+          - { os: macos-latest, target: darwin-x64, desktop: true }
+          - { os: macos-latest, target: darwin-arm64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      # 必须全量历史 + tag：`+cq.<n>.g<sha>` fork 标识构建时跑 git describe 生成
+      # （见 spec 2026-10-21-fork-build-metadata-version-identity），默认浅克隆无 tag
+      # 会让产物退化成 cq.dev.g<sha>，丢失领先 tag 的提交距离。
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve fork build metadata
+        # zip 资产名与 Release 标题要和二进制 --version 里的身份一致，这里独立解析
+        # 同一份 git 信息（与 build.mjs 的 parseGitDescribeToBuildMetadata 语义一致，
+        # 由 build.test.mjs 锚定）。CI 有全量历史且树干净，解析异常直接失败：
+        # 资产名与二进制不一致比构建失败更糟。
+        shell: bash
+        run: |
+          META=$(node -e '
+            const { execFileSync } = require("node:child_process");
+            const out = execFileSync("git", ["describe", "--tags", "--long", "--dirty"], { encoding: "utf8" }).trim();
+            const m = /^(.+?)-(\d+)-g([0-9a-f]+)(-dirty)?$/.exec(out);
+            if (!m) { console.error(`unexpected git describe output: ${out}`); process.exit(1); }
+            console.log(["cq", m[2], `g${m[3]}`, m[4] && "dirty"].filter(Boolean).join("."));
+          ')
+          echo "FORK_META=$META" >> "$GITHUB_ENV"
+
+      # pnpm 版本取自根 package.json 的 packageManager 字段（10.33.2）
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.14.0" # 与 mise.toml 基线一致
+          cache: pnpm
+
+      - name: Install dependencies
+        env:
+          # Electron 二进制只有 desktop leg 需要（经 electron-builder 按 electronVersion
+          # 41.2.0 自行下载）；cli/server leg 完全用不到，跳过下载省时间带宽。
+          ELECTRON_SKIP_BINARY_DOWNLOAD: ${{ matrix.desktop == true && '0' || '1' }}
+        run: pnpm install --frozen-lockfile
+
+      - name: Build CLI bundle and workspace deps
+        # 等价于上游 build:sea 的 turbo 前半段，但用 pnpm 拓扑构建且只构建本矩阵需要的部分
+        run: pnpm --filter "@zcode/cli..." build
+
+      - name: Compile @zcode/shared dist
+        # shared 是源码形态包（无 build 脚本，exports 直指 src），但 SEA 运行时闭包
+        # 断言 packages/shared/dist/index.js 必须存在；上游构建机靠 typecheck 副产物，
+        # 干净 CI 需要显式编译（2026-10-20 windows runner 实测报错）。
+        run: pnpm exec tsc -p packages/shared/tsconfig.json
+
+      - name: Build official plugin MCP runtimes
+        # SEA 资产收集与 server stage 的 requiresRuntime 插件都断言 dist/mcp/server.js
+        # （browser-use 复用 node-repl-host 的 server）。插件 dist 被 gitignore，干净 CI
+        # 必须显式构建。清单对齐上游 build-desktop-agent-cli.mjs 的
+        # requiredDevPluginRuntimeBuilds，上游新增 requiresRuntime 插件时需同步此处。
+        shell: bash
+        run: |
+          for pkg in \
+            @zcode/android-emulator-plugin \
+            @zcode/ios-simulator-plugin \
+            @zcode/node-repl-host \
+            @zcode/browser-use-plugin \
+            @zcode/documents-plugin \
+            @zcode/pdf-plugin \
+            @zcode/presentations-plugin \
+            @zcode/spreadsheets-plugin \
+          ; do
+            pnpm --filter "$pkg" build
+          done
+
+      - name: Build SEA binary (${{ matrix.target }})
+        # build-sea 脚本自带 host 目标冒烟测试（--version），跨平台目标跳过
+        run: pnpm --filter @zcode/cli sea --target ${{ matrix.target }}
+
+      - name: Build server runtime bundle
+        run: pnpm --filter @zcode/server-cli build
+
+      - name: Stage zcode-server release
+        # 上游 desktop 远程部署同款 staged 发行包（随包 Node + 依赖闭包 + agent bundle +
+        # 插件 + 原生搜索工具 + bin/zcode 启动器）。不做上游归档层（--no-archive
+        # --skip-component-archives）：本 workflow 自行拼最终 zip，归档是重复功。
+        # server stage 的 target 命名是 win32-*，与 CLI 矩阵的 win-x64 不同源，这里映射。
+        env:
+          SERVER_TARGET: ${{ matrix.target == 'win-x64' && 'win32-x64' || matrix.target }}
+        run: pnpm --filter @zcode/server-cli exec tsx src/packaging/stageCli.ts --target ${{ env.SERVER_TARGET }} --no-archive --skip-component-archives
+
+      - name: Build desktop app (darwin-x64)
+        if: matrix.desktop == true
+        # 上游正式打包入口：prepare:runtime-assets → production build（含
+        # prepare:build-meta，fork 身份在这里写进 build-meta.json）→ electron-builder
+        # （dmg+zip target 照上游跑，我们只取 dist/mac/ZCode.app 拼最终 zip）→ 运行时
+        # 闭包校验 → 体积审计。ZCODE_ENV=production：不设则默认 preview 身份
+        # （desktop-product-identity.mjs），打出来会是 "ZCode Preview"。
+        # CSC_IDENTITY_AUTO_DISCOVERY=false：CI 无签名证书，走 ad-hoc 签名，与本地打包一致。
+        env:
+          ZCODE_ENV: production
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: node packages/desktop/scripts/bundle.mjs --os mac --arch x64
+
+      - name: Package platform bundle into versioned zip
+        # 后缀只进 zip 文件名，包内产物名恒定（zcode-cli / zcode-server/ / ZCode.app）：
+        # 解压即用不随构建漂移，身份由 zip 名 + 二进制 --version / 桌面 About 双重承载。
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          case "$TARGET" in
+            win-x64)      cli_src="zcode-windows-x64.exe"; inner="zcode-cli.exe" ;;
+            linux-x64)    cli_src="zcode-linux-x64";       inner="zcode-cli" ;;
+            darwin-x64)   cli_src="zcode-darwin-x64";      inner="zcode-cli" ;;
+            darwin-arm64) cli_src="zcode-darwin-arm64";    inner="zcode-cli" ;;
+            *) echo "unknown target: $TARGET" >&2; exit 1 ;;
+          esac
+          zipname="zcode-v${version}-${FORK_META}-${TARGET}.zip"
+          rm -rf release-pkg && mkdir release-pkg
+          cp "apps/zcode-cli/packages/cli/dist/$cli_src" "release-pkg/$inner"
+          # cp 会丢执行位（umask 归一），unix 内核要它才能直接跑
+          [ "$RUNNER_OS" = "Windows" ] || chmod 755 "release-pkg/$inner"
+          # staged 发行目录重命名去掉 target 后缀：zip 名已带 target，包内保持干净
+          mv "packages/zcode-server-cli/dist-release/zcode-server-${SERVER_TARGET}" "release-pkg/zcode-server"
+          if [ "${{ matrix.desktop }}" = "true" ]; then
+            app_path="$(ls -d packages/desktop/dist/mac/*.app 2>/dev/null | head -1 || true)"
+            [ -n "$app_path" ] || { echo "ZCode.app not found in packages/desktop/dist/mac" >&2; exit 1; }
+            cp -R "$app_path" "release-pkg/$(basename "$app_path")"
+          fi
+          # windows runner 的 git-bash 无 zip 命令，回退 7z（三平台镜像均预装）；
+          # ZCode.app 判断必须用 if——`[ -d ] && ...` 在无 .app 的 leg 会因 set -e 中断步骤
+          (cd release-pkg && if command -v zip > /dev/null 2>&1; then
+            entries=("$inner" "zcode-server")
+            if [ -d "ZCode.app" ]; then entries+=("ZCode.app"); fi
+            zip -qr "../$zipname" "${entries[@]}"
+          else
+            args=(a -tzip -bso0 "../$zipname" "$inner" "zcode-server")
+            if [ -d "ZCode.app" ]; then args+=("ZCode.app"); fi
+            7z "${args[@]}"
+          fi)
+          mkdir -p release-out && mv "$zipname" release-out/
+          ls -1 release-out/
+
+      - name: Generate checksums
+        shell: bash
+        env:
+          SEA_TARGET: ${{ matrix.target }}
+        run: |
+          node --input-type=commonjs - <<'EOF'
+          const { createHash } = require("node:crypto");
+          const fs = require("node:fs");
+          const dir = "release-out";
+          const target = process.env.SEA_TARGET;
+          const lines = fs
+            .readdirSync(dir)
+            .filter((f) => /^zcode-v.*\.zip$/.test(f))
+            .sort()
+            .map(
+              (f) =>
+                `${createHash("sha256").update(fs.readFileSync(`${dir}/${f}`)).digest("hex")}  ${f}`,
+            );
+          fs.writeFileSync(`${dir}/SHA256SUMS-${target}.txt`, `${lines.join("\n")}\n`);
+          console.log(lines.join("\n"));
+          EOF
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fork-${{ matrix.target }}
+          path: |
+            release-out/*.zip
+            release-out/SHA256SUMS-${{ matrix.target }}.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # 全量历史：与 build job 独立解析同一份 fork 元数据（同一 SHA，结果必然一致），
+      # 保证 Release 标题、zip 资产名、二进制 --version 三处身份完全对应。
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Resolve version and fork metadata
+        # 解析逻辑与 build.mjs 的 parseGitDescribeToBuildMetadata 一致（语义由
+        # build.test.mjs 锚定）；异常直接失败，避免资产名与二进制身份不一致。
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          META=$(node -e '
+            const { execFileSync } = require("node:child_process");
+            const out = execFileSync("git", ["describe", "--tags", "--long", "--dirty"], { encoding: "utf8" }).trim();
+            const m = /^(.+?)-(\d+)-g([0-9a-f]+)(-dirty)?$/.exec(out);
+            if (!m) { console.error(`unexpected git describe output: ${out}`); process.exit(1); }
+            console.log(["cq", m[2], `g${m[3]}`, m[4] && "dirty"].filter(Boolean).join("."));
+          ')
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "META=$META" >> "$GITHUB_ENV"
+
+      - name: Create or refresh GitHub Release
+        # 固定单条 Release：标题/说明随每次构建刷新，资产先删后传整体替换，
+        # 页面上只有最新一份且文件名与本次构建一一对应（2026-10-21 裁决）。
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TAG="v$VERSION"
+          TITLE="ZCode fork v$VERSION · $META"
+          cat > release-notes-body.md <<'NOTES'
+          fork 三产物统一构建（同一 commit 出包，cli/server/desktop 版本一致）。每个 zip
+          对应一个平台，包内文件名不带版本；本 Release 的资产每次 push 整体替换为最新构建，
+          历史构建见该 run 的 Actions artifacts（保留 14 天）。
+
+          | 文件 | 平台 | 包内内容 |
+          |---|---|---|
+          | zcode-v*-darwin-x64.zip | macOS（Intel） | zcode-cli + zcode-server + ZCode.app |
+          | zcode-v*-darwin-arm64.zip | macOS（Apple Silicon） | zcode-cli + zcode-server |
+          | zcode-v*-linux-x64.zip | Linux x64 | zcode-cli + zcode-server |
+          | zcode-v*-windows-x64.zip | Windows x64 | zcode-cli.exe + zcode-server |
+
+          **zcode-cli**（Node SEA 单文件）：解压得固定名 `zcode-cli`（Windows 为
+          `zcode-cli.exe`），改名 `zcode` 放入 PATH（如 `~/.local/bin`），`chmod +x` 即用。
+
+          **zcode-server**（远程/无网部署）：staged 发行目录，自带 Node v22.16.0，目标机器
+          无需安装 Node。`zcode-server/bin/zcode`（Windows 为 `zcode-server\bin\zcode.cmd`）
+          直接启动；与官方 desktop 远程部署的 server 是同一套产物。
+
+          **ZCode.app**（仅 darwin-x64）：拖入 `/Applications`。production 身份的
+          appId/userData 与官方版完全相同，与官方正式版并存时先退出官方版。
+
+          版本身份：三产物统一显示 `3.16.2+cq.<n>.g<sha>`（zcode-cli/zcode-server 的
+          `--version`，桌面「关于」窗口版本号旁的 `· cq...`），与 zip 文件名、Release
+          标题一致，用于确认拿到的是哪次构建。
+
+          macOS 首次运行被 Gatekeeper 拦截时：
+          `xattr -d com.apple.quarantine ./zcode-cli`（ZCode.app 同理对 .app 执行）。
+          Windows SmartScreen 警告：二进制未做 Authenticode 签名，选「更多信息 → 仍要运行」。
+          校验和见各 SHA256SUMS-<target>.txt（对象为对应 zip）。
+          NOTES
+          # 非官方构建声明置顶：明确产物来源与构建 commit（商标合规：nominative use）
+          {
+            printf '%s\n\n' "> ℹ️ 非官方构建：本产物由 fork [${GITHUB_REPOSITORY}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}) 的 CI 基于 [zai-org/ZCode](https://github.com/zai-org/ZCode)（Apache-2.0）源码自动编译，与智谱官方无关。构建来源 commit：\`${GITHUB_SHA}\`"
+            cat release-notes-body.md
+          } > release-notes.md
+
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release edit "$TAG" --title "$TITLE" --notes-file release-notes.md
+            # 先删全部旧资产再上传：文件名带构建身份，不清会跨构建累积
+            while IFS= read -r name; do
+              [ -n "$name" ] && gh release delete-asset "$TAG" "$name" --yes
+            done < <(gh release view "$TAG" --json assets --jq '.assets[].name')
+            gh release upload "$TAG" artifacts/zcode-v*-*.zip artifacts/SHA256SUMS-*.txt --clobber
+          else
+            gh release create "$TAG" \
+              artifacts/zcode-v*-*.zip \
+              artifacts/SHA256SUMS-*.txt \
+              --title "$TITLE" \
+              --notes-file release-notes.md
+          fi

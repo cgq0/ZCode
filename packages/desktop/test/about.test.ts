@@ -6,6 +6,7 @@ import {
   formatAboutDetail,
   formatAboutOptimizationLine,
 } from "../src/main/about.js";
+import { createCustomAboutDialogHtml } from "../src/main/aboutWindow.js";
 
 describe("about", () => {
   const appleSiliconSnapshot = createAboutSnapshot({
@@ -38,6 +39,8 @@ describe("about", () => {
 
     expect(detail).toContain("Version: 0.1.7");
     expect(detail).toContain("Commit: abc1234");
+    // 旧 build-meta 无 fork 身份字段时不输出该行
+    expect(detail).not.toContain("Build Identity:");
     expect(detail).toContain("Build Time: 2026-03-28T10:20:30.000Z");
     expect(detail).toContain("Electron: 41.0.3");
     expect(detail).toContain("Electron Builder: 26.8.1");
@@ -74,6 +77,34 @@ describe("about", () => {
   it("非 Apple Silicon 不展示 Apple Silicon 优化文案", () => {
     expect(formatAboutOptimizationLine({ osPlatform: "darwin", osArch: "x64" }, "en-US")).toBe("");
     expect(formatAboutOptimizationLine({ osPlatform: "win32", osArch: "arm64" }, "en-US")).toBe("");
+  });
+
+  it("build-meta 带 fork 身份时在详情与自绘 About 输入中透出", () => {
+    const snapshot = createAboutSnapshot({
+      appVersion: "3.16.2",
+      environment: "production",
+      buildMetadata: {
+        appVersion: "3.16.2",
+        buildCommitId: "87a2c2c4",
+        forkBuildMeta: "cq.5.g87a2c2c4",
+        buildTime: "2026-10-24T10:20:30.000Z",
+        electronBuilderVersion: "26.8.1",
+      },
+    });
+
+    expect(snapshot.forkBuildMeta).toBe("cq.5.g87a2c2c4");
+    expect(formatAboutDetail(snapshot)).toContain("Build Identity: cq.5.g87a2c2c4");
+
+    const html = createCustomAboutDialogHtml({
+      applicationName: "ZCode Desktop App",
+      appVersion: snapshot.appVersion,
+      forkBuildMeta: snapshot.forkBuildMeta,
+      copyright: "",
+      optimizationLine: "",
+      versionLabel: "版本",
+      okButtonLabel: "确定",
+    });
+    expect(html).toContain('版本 3.16.2<span class="fork-meta">· cq.5.g87a2c2c4</span>');
   });
 
   it("版权年份可按调用方传入覆盖", () => {

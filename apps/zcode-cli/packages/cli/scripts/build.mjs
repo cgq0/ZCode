@@ -10,6 +10,8 @@ import { stageThirdPartyNotices } from "../../../../../scripts/third-party-notic
 
 const cliRoot = resolve(import.meta.dirname, "..");
 const projectRoot = resolve(cliRoot, "../..");
+// packages/cli → apps/zcode-cli → apps → monorepo 根（base 版本从此读取，2026-10-24 裁决）
+const repoRoot = resolve(cliRoot, "../../../..");
 const executableFileMode = 0o755;
 const packageJsonFile = "package.json";
 const rootPackageVersionError = "Root package.json must define a non-empty string version.";
@@ -123,12 +125,13 @@ export const readRootPackageVersion = async ({ root = projectRoot } = {}) => {
   return packageJson.version;
 };
 
-// 上游同一版本号（如 v0.17.0）可能对应多份代码与多个构建，fork 修复后若仍只报
-// package.json 的 version，就无法区分"修过 bug"与"没修过"的产物。按 SemVer 规范，
-// `+` 之后的 build metadata 不参与优先级比较（`-` 预发布后缀会被判为低于正式版），
-// 因此 fork 身份放进 `+`：`0.17.0+cq.5.g87a2c2c4.dirty` = 领先最近 tag 5 个提交、
-// 短 SHA 87a2c2c4、工作区有未提交改动。tag 名不入 metadata：本仓库 tag 是
-// zcode-cli-v* 的 monorepo 风格，与 CLI package.json 的 0.x 版本不同源，混写只会误导。
+// 上游同一版本号可能对应多份代码与多个构建，fork 修复后若仍只报 package.json 的
+// version，就无法区分"修过 bug"与"没修过"的产物。按 SemVer 规范，`+` 之后的 build
+// metadata 不参与优先级比较（`-` 预发布后缀会被判为低于正式版），因此 fork 身份放进
+// `+`：`3.16.2+cq.5.g87a2c2c4.dirty` = 领先最近 tag 5 个提交、短 SHA 87a2c2c4、工作区
+// 有未提交改动。base 取 monorepo 根版本（2026-10-24 裁决：fork 三产物 cli/server/desktop
+// 统一显示同一版本，与 Release tag `v3.16.2`、zip 文件名同源；此前取 CLI workspace 自己
+// 的 0.x 版本，与根版本双轨并行只会让三产物身份对不上）。tag 名不入 metadata。
 const execFileAsync = promisify(execFile);
 const describeOutputPattern = /^(.+?)-(\d+)-g([0-9a-f]+)(-dirty)?$/;
 const buildMetadataPattern = /^[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*$/;
@@ -218,7 +221,7 @@ export const buildCli = async ({
   sourcemap = true,
   env = process.env,
   version = readRootPackageVersion({
-    root: rootDirectory,
+    root: repoRoot,
   }),
 } = {}) => {
   const cliVersion = await resolveForkCliVersion({ baseVersion: await version });
