@@ -72,9 +72,12 @@ it("rejects remote unclassified and empty-project creation before allocating a d
     await expect(service.prepareSession({ projectId: project.id })).rejects.toThrow(
       "project.remote-single-root-required",
     );
+    // fork 修复：字面量 hostId "local" 在 route() 归一为本机路由（Web 客户端"此电脑"
+    // 的桌面时代约定；standalone Server 的 owner 是 remote:server:<id>）。拒绝语义不变
+    // ——仍在任何目录副作用之前按远端 owner 纪律拒绝，且等价于 hostId 省略时的行为。
     await expect(
       service.prepareSession({ hostId: "local", projectId: project.id }),
-    ).rejects.toThrow("project.host-offline");
+    ).rejects.toThrow("project.remote-single-root-required");
     expect(initializeProjectRoot).not.toHaveBeenCalled();
   } finally {
     await rm(root, { recursive: true, force: true });

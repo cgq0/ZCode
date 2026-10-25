@@ -82,7 +82,13 @@ export function createProjectService(options: {
   afterChange?: () => Promise<void>;
 }): IProjectService {
   const route = async (hostId?: string) => {
-    if (!hostId || hostId === (options.ownerHostId ?? "local")) return null;
+    // 修复原因：Web/桌面共用的 UI 把"服务所在机器"标为字面量 hostId "local"（桌面端约定，
+    // 见 ProjectCreation/ProjectEditor 的 defaultDeviceId）。standalone Server 的 owner 是
+    // remote:server:<id>，线缆客户端说 "local" 只可能指服务器自身（不存在其它本地宿主），
+    // 旧行为直接抛 host-offline，浏览器端"此电脑"的目录浏览/建项目全部不可用。这里把
+    // "local" 归一为本机路由；存储 owner 仍取 projectStorageHostId，不开 local owner 存储。
+    // 桌面端 owner 即 "local"，归一前后行为等价。
+    if (!hostId || hostId === "local" || hostId === (options.ownerHostId ?? "local")) return null;
     if (!options.resolveHost) throw new Error("project.host-offline");
     return options.resolveHost(hostId);
   };
@@ -141,7 +147,11 @@ export function createProjectService(options: {
       return { ...tree, projects: await projectPrimaryRootStatuses(tree.projects) };
     },
     async saveProject(input) {
-      input = saveProjectSchema.parse(input);
+      // 与 route() 同因：仓储层按 ownerHostId 校验 host-immutable，字面量 "local" 在
+      // standalone Server 上必须先剥离，否则保存项目在目录校验前就被拒绝。
+      input = saveProjectSchema.parse(
+        input.hostId === "local" ? { ...input, hostId: undefined } : input,
+      );
       const remote = await route(input.hostId);
       if (remote) return remote.saveProject(input);
       const roots = input.roots
