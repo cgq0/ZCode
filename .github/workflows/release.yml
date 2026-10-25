@@ -8,7 +8,8 @@
 # 发版形态（2026-10-24 裁决，见 cgq0/docs/diary/2026-10-24.mac.md）：
 #   - 每平台一条 zip：zcode-v<版本>-cq.<n>.g<sha>-<target>.zip，包内文件名不带版本：
 #     zcode-cli（win: zcode-cli.exe）、zcode-server/（staged 发行目录，自带 Node
-#     v22.16.0），darwin-x64 额外含 ZCode.app（桌面只打 x86 mac，省 runner 配额）。
+#     v22.16.0），darwin-x64 额外含 ZCode.fork.app（桌面只打 x86 mac，省 runner 配额；
+#     2026-10-25 起产品名/图标改为 fork 专属蓝底，与官方 ZCode.app 可同装互不覆盖）。
 #   - 三产物版本统一为 monorepo 根版本 3.16.2 + `+cq.<n>.g<sha>`：cli 由 build.mjs
 #     注入（base 从根 package.json 读取）；desktop 由 build-metadata.mjs 写入
 #     build-meta.json（About 展示）；server stage 本就读根版本。Release tag、zip
@@ -161,12 +162,15 @@ jobs:
         if: matrix.desktop == true
         # 上游正式打包入口：prepare:runtime-assets → production build（含
         # prepare:build-meta，fork 身份在这里写进 build-meta.json）→ electron-builder
-        # （dmg+zip target 照上游跑，我们只取 dist/mac/ZCode.app 拼最终 zip）→ 运行时
+        # （dmg+zip target 照上游跑，我们只取 dist/mac/ZCode.fork.app 拼最终 zip）→ 运行时
         # 闭包校验 → 体积审计。ZCODE_ENV=production：不设则默认 preview 身份
         # （desktop-product-identity.mjs），打出来会是 "ZCode Preview"。
+        # ZCODE_DESKTOP_PRODUCT_NAME：fork 专属产品名，只改 .app/菜单栏/About 显示，
+        # appId/userData 仍与官方 ZCode 相同（共享登录态与任务数据，同时只能运行一个）。
         # CSC_IDENTITY_AUTO_DISCOVERY=false：CI 无签名证书，走 ad-hoc 签名，与本地打包一致。
         env:
           ZCODE_ENV: production
+          ZCODE_DESKTOP_PRODUCT_NAME: "ZCode.fork"
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: node packages/desktop/scripts/bundle.mjs --os mac --arch x64
 
@@ -194,7 +198,7 @@ jobs:
           mv "packages/zcode-server-cli/dist-release/zcode-server-${SERVER_TARGET}" "release-pkg/zcode-server"
           if [ "${{ matrix.desktop }}" = "true" ]; then
             app_path="$(ls -d packages/desktop/dist/mac/*.app 2>/dev/null | head -1 || true)"
-            [ -n "$app_path" ] || { echo "ZCode.app not found in packages/desktop/dist/mac" >&2; exit 1; }
+            [ -n "$app_path" ] || { echo "ZCode.fork.app not found in packages/desktop/dist/mac" >&2; exit 1; }
             cp -R "$app_path" "release-pkg/$(basename "$app_path")"
           fi
           # windows runner 的 git-bash 无 zip 命令，回退 7z（三平台镜像均预装）；
@@ -292,7 +296,7 @@ jobs:
 
           | 文件 | 平台 | 包内内容 |
           |---|---|---|
-          | zcode-v*-darwin-x64.zip | macOS（Intel） | zcode-cli + zcode-server + ZCode.app |
+          | zcode-v*-darwin-x64.zip | macOS（Intel） | zcode-cli + zcode-server + ZCode.fork.app |
           | zcode-v*-darwin-arm64.zip | macOS（Apple Silicon） | zcode-cli + zcode-server |
           | zcode-v*-linux-x64.zip | Linux x64 | zcode-cli + zcode-server |
           | zcode-v*-windows-x64.zip | Windows x64 | zcode-cli.exe + zcode-server |
@@ -304,15 +308,17 @@ jobs:
           无需安装 Node。`zcode-server/bin/zcode`（Windows 为 `zcode-server\bin\zcode.cmd`）
           直接启动；与官方 desktop 远程部署的 server 是同一套产物。
 
-          **ZCode.app**（仅 darwin-x64）：拖入 `/Applications`。production 身份的
-          appId/userData 与官方版完全相同，与官方正式版并存时先退出官方版。
+          **ZCode.fork.app**（仅 darwin-x64）：拖入 `/Applications`，蓝底图标与
+          "ZCode.fork" 名字和官方 ZCode.app 一眼区分，可同时安装互不覆盖。appId 与
+          userData 仍与官方版相同：登录态、任务、配置全部共享，同时只能运行一个，
+          切换前先退出另一个。
 
           版本身份：三产物统一显示 `3.16.2+cq.<n>.g<sha>`（zcode-cli/zcode-server 的
           `--version`，桌面「关于」窗口版本号旁的 `· cq...`），与 zip 文件名、Release
           标题一致，用于确认拿到的是哪次构建。
 
           macOS 首次运行被 Gatekeeper 拦截时清除隔离标记（-r 递归，对 .app 目录必须加）：
-          `xattr -rd com.apple.quarantine ./zcode-cli`；ZCode.app 同法指向 .app 路径。
+          `xattr -rd com.apple.quarantine ./zcode-cli`；ZCode.fork.app 同法指向 .app 路径。
           Windows SmartScreen 警告：二进制未做 Authenticode 签名，选「更多信息 → 仍要运行」。
           校验和见各 SHA256SUMS-<target>.txt（对象为对应 zip）。
           NOTES
