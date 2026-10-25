@@ -20,6 +20,7 @@ const h = React.createElement as (
 const USER_MESSAGE_VERTICAL_PADDING = 1;
 
 export function ContentPane({
+  activeDots,
   animateEmptyLogo = false,
   copy = DEFAULT_TUI_COPY,
   expandedWorkflowRunIds,
@@ -31,6 +32,7 @@ export function ContentPane({
   terminalWidth = 100,
   workflowCardsByToolCallId,
 }: {
+  activeDots?: string;
   animateEmptyLogo?: boolean;
   copy?: TuiCopy;
   expandedWorkflowRunIds?: ReadonlySet<string>;
@@ -85,6 +87,9 @@ export function ContentPane({
         ]
       : messages.map((message, index) =>
           h(MemoizedMessageRow, {
+            // 活动帧只发给含活动 part 的行（thinking 思考块 / running 工具行），其余行
+            // 恒为 undefined——comparator 按引用比较后在 400ms tick 间继续拦截它们。
+            activeDots: messageActivityDots(message, activeDots),
             copy,
             expandedWorkflowRunIds,
             index,
@@ -97,7 +102,28 @@ export function ContentPane({
   );
 }
 
+/**
+ * 400ms 活动帧只进含活动 part 的消息（docs/cli-tui-activity-visibility.md）：
+ * thought part 处于 thinking、tool part 处于 running 的消息拿到帧值，其余消息返回
+ * undefined，让 MemoizedMessageRow 在每次 tick 都被 comparator 拦下——每 tick 成本
+ * 是 O(消息数) 次 prop 比较，重渲染仅限活动行，不回到 O(转录长度)。
+ */
+export function messageActivityDots(
+  message: Message,
+  activeDots: string | undefined,
+): string | undefined {
+  if (!activeDots) return undefined;
+  return (message.parts ?? []).some(
+    (part) =>
+      (part.type === "tool" && part.status === "running") ||
+      (part.type === "thought" && part.status === "thinking"),
+  )
+    ? activeDots
+    : undefined;
+}
+
 type MessageRowProps = {
+  activeDots?: string;
   copy?: TuiCopy;
   expandedWorkflowRunIds?: ReadonlySet<string>;
   index: number;
@@ -109,14 +135,16 @@ type MessageRowProps = {
 // 比较器刻意不比较 index：MessageRow 不消费它，消息数组位移（如插行）不应引发全量重渲染。
 // 其余 prop 均按引用比较——copy 是 locale 常量，workflowCardsByToolCallId 是
 // useMemo([mirror])，expandedWorkflowRunIds 是 useState 持有的 ReadonlySet，
-// 无变化时引用稳定（2026-10-21 spec 核实）。
+// activeDots 只在活动行间变化（非活动行恒为 undefined），无变化时引用/值稳定
+// （2026-10-21 spec 核实；activeDots 为 2026-10-25 活动动效扩展新增）。
 export function messageRowPropsAreEqual(prev: MessageRowProps, next: MessageRowProps): boolean {
   return (
     prev.message === next.message &&
     prev.copy === next.copy &&
     prev.terminalWidth === next.terminalWidth &&
     prev.expandedWorkflowRunIds === next.expandedWorkflowRunIds &&
-    prev.workflowCardsByToolCallId === next.workflowCardsByToolCallId
+    prev.workflowCardsByToolCallId === next.workflowCardsByToolCallId &&
+    prev.activeDots === next.activeDots
   );
 }
 
@@ -125,6 +153,7 @@ export function messageRowPropsAreEqual(prev: MessageRowProps, next: MessageRowP
 export const MemoizedMessageRow = React.memo(MessageRow, messageRowPropsAreEqual);
 
 export function MessageRow({
+  activeDots,
   copy = DEFAULT_TUI_COPY,
   expandedWorkflowRunIds,
   message,
@@ -185,6 +214,7 @@ export function MessageRow({
         }
         // 无命中就回落今日的文本投影（编过但没有 run、或镜像尚未补种）。
         return h(ToolTranscriptPartView, {
+          activeDots,
           key: `tool-${part.toolCallId}`,
           part,
           terminalWidth,
@@ -192,6 +222,7 @@ export function MessageRow({
       }
       if (part.type === "thought") {
         return h(ThoughtTranscriptPartView, {
+          activeDots,
           copy,
           key: `thought-${partIndex}`,
           part,

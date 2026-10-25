@@ -1,5 +1,6 @@
 import React from "react";
 import type { TuiCopy } from "@zcode/i18n";
+import { stripTrailingEllipsis } from "./app-motion.js";
 import type { ThoughtTranscriptPart } from "./app-model.js";
 import { palette } from "./app-model.js";
 import { DEFAULT_TUI_COPY } from "./app-locale.js";
@@ -16,12 +17,16 @@ const EXPANDED_MARKER = "-";
 export function ThoughtTranscriptPartView({
   copy = DEFAULT_TUI_COPY,
   part,
+  activeDots,
 }: {
   copy?: TuiCopy;
   part: ThoughtTranscriptPart;
+  /** 400ms 活动帧（docs/cli-tui-activity-visibility.md）：仅 thinking 态接动态点。 */
+  activeDots?: string;
 }): React.ReactElement {
   const [expanded, setExpanded] = React.useState(false);
   return h(ThoughtTranscriptPartFrame, {
+    activeDots,
     copy,
     expanded,
     onToggle: () => setExpanded((current) => !current),
@@ -34,13 +39,21 @@ export function ThoughtTranscriptPartFrame({
   expanded,
   onToggle,
   part,
+  activeDots,
 }: {
   copy?: TuiCopy;
   expanded: boolean;
   onToggle: () => void;
   part: ThoughtTranscriptPart;
+  activeDots?: string;
 }): React.ReactElement {
-  const label = thoughtPlaceholderLabel(part, copy);
+  const baseLabel = thoughtPlaceholderLabel(part, copy);
+  // thinking 态剥掉静态省略号接 400ms 动态点（"+ Thinking." 循环），让用户分清
+  // "在思考"与"已完成"；完成态（Thought）保持静止。
+  const label =
+    part.status === "thinking" && activeDots
+      ? `${stripTrailingEllipsis(baseLabel)}${activeDots}`
+      : baseLabel;
   const marker = expanded ? EXPANDED_MARKER : COLLAPSED_MARKER;
 
   return h(

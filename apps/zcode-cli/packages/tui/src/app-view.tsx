@@ -110,9 +110,14 @@ export function AppView(props: {
 }): React.ReactElement {
   const readOnly = Boolean(props.subagents?.selected);
   // busy 时状态文本尾部省略号换成 1→2→3 循环动态点（docs/cli-tui-activity-visibility.md）：
-  // 静止的 "Thinking..." 分不清"在等模型"还是"已经完了"。timer 仅 busy 时存在；
-  // 在 AppView 组好纯字符串再传 Sidebar，Sidebar 保持无 hook（单测直接函数调用可用）。
-  const thinkingDots = useThinkingDots(props.busy);
+  // 静止的 "Thinking..." 分不清"在等模型"还是"已经完了"。timer 仅活动时存在；
+  // 在 AppView 组好纯字符串再下传，Sidebar/ContentPane/MessageRow 保持无 hook
+  // （单测直接函数调用可用）。门控 = busy 或后台任务运行中：回合结束后指示行与
+  // 转写里 running 工具行仍要点动，用户才不会误判"卡住/已完"。
+  const backgroundTasksRunning = (props.backgroundTasks ?? []).some(
+    (task) => task.status === "running",
+  );
+  const thinkingDots = useThinkingDots(props.busy || backgroundTasksRunning);
   const sidebarStatus = props.busy
     ? `${stripTrailingEllipsis(props.status)}${thinkingDots}`
     : props.status;
@@ -198,6 +203,7 @@ export function AppView(props: {
       },
       h(ContentPane, {
         id: "main-transcript",
+        activeDots: thinkingDots,
         animateEmptyLogo: !props.options.noColor,
         copy: props.copy,
         focused: false,
@@ -213,6 +219,7 @@ export function AppView(props: {
             tasks: props.backgroundTasks ?? [],
             copy: props.copy,
             contentWidth: actionPanelContentWidth,
+            dots: thinkingDots,
           })
         : null,
       props.approvalQueue[0]

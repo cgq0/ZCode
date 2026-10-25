@@ -19,12 +19,18 @@ const h = React.createElement as (
 export function ToolTranscriptPartView({
   part,
   terminalWidth = 100,
+  activeDots,
 }: {
   part: ToolTranscriptPart;
   terminalWidth?: number;
+  /** 400ms 活动帧（docs/cli-tui-activity-visibility.md）：仅 running 态接动态点，其余态静止。 */
+  activeDots?: string;
 }): React.ReactElement {
   const statusColor = colorForStatus(part.status);
-  const title = part.title ?? `Tool ${part.toolName} ${part.status}`;
+  const baseTitle = part.title ?? `Tool ${part.toolName} ${part.status}`;
+  // 运行中行尾部点动（"." → ".." → "..."），让"卡住"与"进行中"一眼可辨。
+  const title =
+    part.status === "running" && activeDots ? `${baseTitle}${activeDots}` : baseTitle;
   const outputLines = part.output ? restoredOutputLines(part.output, terminalWidth) : [];
   // tool rows should align with assistant text; child detail rows carry their own indent.
   return h(

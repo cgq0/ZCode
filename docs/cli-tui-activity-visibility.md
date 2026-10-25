@@ -52,9 +52,18 @@ CLI TUI 三个易用性行为的合同。背景：后台任务挂起后 TUI 无�
 - `app-motion.tsx` 新增纯函数 `thinkingDotsFrame(frameMs)`（"." → ".." → "..."，
   400ms 步进，`Date.now()` 推导可注入）与 `useThinkingDots(animated)`（interval
   仅 animated 时存在，卸载清理，同 `useSpinnerFrame` 模式）。
-- 渲染点仅侧栏状态行：busy 时剥掉状态文本尾部省略号、接动态点。zh-CN 同路径
-  生效。转写流式 thought 占位符**保持静态**（每行内容不做动画，避免多行 timer
-  破坏 MemoizedMessageRow 渲染预算）。
+- **帧所有者唯一（AppView）**，门控 = `busy || running 后台任务 > 0`（2026-10-25
+  扩展：后台任务可在回合结束后仍运行，动效须随之存续）；全场只有一个 400ms timer，
+  动画字符串在 AppView 组成纯值分发：
+  - 侧栏状态行：busy 时剥状态文本尾部省略号、接动态点（zh-CN 同路径生效）；
+  - 转写活动行（2026-10-25 扩展，**反转**前述「占位符静态」决策）：`+ Thinking`
+    占位符（thought part `status === "thinking"`）与 running toolcall 行标题
+    （tool part `status === "running"`）尾部接动态点；完成/失败态静止；
+  - 后台任务指示行：文案模板接动态点（i18n en/zh 模板加 dots 参数）。
+- **memo 作用域**：`ContentPane` per-message 计算活动帧——仅含活动 part 的消息拿到
+  帧值，其余消息传 `undefined`；`messageRowPropsAreEqual` 增加 `activeDots` 引用
+  比较。每 tick 成本 = 全树协调 + O(消息数) 次 prop 比较，实际重渲染仅限活动行
+  （≤ 并行工具数 + 流式思考块），不回到 87a2c2c4 之前的 O(转录长度)/tick。
 
 ## 滚动快捷键
 
@@ -77,3 +86,8 @@ CLI TUI 三个易用性行为的合同。背景：后台任务挂起后 TUI 无�
 3. busy 期间侧栏状态行点数循环可见变化（400ms 步进），空闲无 timer。
 4. 常规模式 Ctrl+End/Option+End 滚底并恢复跟随，Ctrl+Home 置顶；子代理视图内
    Ctrl+End 滚子代理转写；composer 内普通 End 光标到行尾不变。
+5. 模型思考中：转写 `+ Thinking` 占位符点动（与侧栏同步），思考完成变 `+ Thought`
+   即静止；工具运行中该行标题点动，completed/failed/pending 静止。
+6. 回合已结束、后台任务仍 running：输入框上方指示行文案点动持续；任务清零后 400ms
+   帧停止（无 timer）。非活动转写行在 tick 间不重渲染（`activeDots` 为 `undefined`
+   时 comparator 恒真）。

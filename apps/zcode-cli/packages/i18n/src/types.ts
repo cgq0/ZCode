@@ -29,7 +29,7 @@ export interface TuiCopy {
     activeStatusHint: string;
     backgroundTasksCtrlCConfirm(count: number): string;
     backgroundTasksExitConfirm(count: number): string;
-    backgroundTasksRunning(count: number, longest: string): string;
+    backgroundTasksRunning(count: number, longest: string, dots?: string): string;
     busyPlaceholder: string;
     placeholder: string;
     queuedMore(count: number): string;

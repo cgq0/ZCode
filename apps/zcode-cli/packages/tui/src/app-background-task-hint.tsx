@@ -46,17 +46,21 @@ export function BackgroundTasksHint({
   copy,
   contentWidth,
   nowMs = Date.now(),
+  dots = "",
 }: {
   tasks: BackgroundTaskInfo[];
   copy: TuiCopy;
   contentWidth?: number;
   nowMs?: number;
+  /** 400ms 活动帧（docs/cli-tui-activity-visibility.md）：运行中即点动，不要求 busy。 */
+  dots?: string;
 }): React.ReactElement | null {
   const running = tasks.filter((task) => task.status === "running");
   if (running.length === 0) return null;
   const label = copy.input.backgroundTasksRunning(
     running.length,
     longestRunningBackgroundTaskAge(running, nowMs),
+    dots,
   );
   // 与 InputActiveStatus 同款归一化：缺宽度时按回退宽度截断，超窄按最小宽度兜底。
   const maxWidth = Math.max(
