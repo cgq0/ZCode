@@ -175,7 +175,8 @@ jobs:
         run: node packages/desktop/scripts/bundle.mjs --os mac --arch x64
 
       - name: Package platform bundle into versioned zip
-        # 后缀只进 zip 文件名，包内产物名恒定（zcode-cli / zcode-server/ / ZCode.app）：
+        # 后缀只进 zip 文件名，包内产物名恒定（zcode-cli / zcode-server/ / .app
+        # 随构建身份命名，当前为 ZCode.fork.app）：
         # 解压即用不随构建漂移，身份由 zip 名 + 二进制 --version / 桌面 About 双重承载。
         shell: bash
         env:
@@ -198,19 +199,21 @@ jobs:
           mv "packages/zcode-server-cli/dist-release/zcode-server-${SERVER_TARGET}" "release-pkg/zcode-server"
           if [ "${{ matrix.desktop }}" = "true" ]; then
             app_path="$(ls -d packages/desktop/dist/mac/*.app 2>/dev/null | head -1 || true)"
-            [ -n "$app_path" ] || { echo "ZCode.fork.app not found in packages/desktop/dist/mac" >&2; exit 1; }
+            [ -n "$app_path" ] || { echo "desktop .app not found in packages/desktop/dist/mac" >&2; exit 1; }
             cp -R "$app_path" "release-pkg/$(basename "$app_path")"
           fi
           # windows runner 的 git-bash 无 zip 命令，回退 7z（三平台镜像均预装）；
-          # ZCode.app 判断必须用 if——`[ -d ] && ...` 在无 .app 的 leg 会因 set -e 中断步骤；
+          # .app 判断必须用 if——`[ -d ] && ...` 在无 .app 的 leg 会因 set -e 中断步骤；
+          # .app 名必须动态 glob：productName 随构建身份变（ZCode/ZCode Preview/ZCode.fork），
+          # 硬编码名字会在改名后静默把 desktop 漏出 zip（2026-10-25 实测踩坑）；
           # zip 的 -y 必须加：.app 框架内有符号链接，默认解引用会复制出双份内容并破坏 app 结构
-          (cd release-pkg && if command -v zip > /dev/null 2>&1; then
+          (cd release-pkg && app_bundle="$(ls -d -- *.app 2>/dev/null | head -1 || true)" && if command -v zip > /dev/null 2>&1; then
             entries=("$inner" "zcode-server")
-            if [ -d "ZCode.app" ]; then entries+=("ZCode.app"); fi
+            if [ -n "$app_bundle" ]; then entries+=("$app_bundle"); fi
             zip -qry "../$zipname" "${entries[@]}"
           else
             args=(a -tzip -bso0 "../$zipname" "$inner" "zcode-server")
-            if [ -d "ZCode.app" ]; then args+=("ZCode.app"); fi
+            if [ -n "$app_bundle" ]; then args+=("$app_bundle"); fi
             7z "${args[@]}"
           fi)
           mkdir -p release-out && mv "$zipname" release-out/
