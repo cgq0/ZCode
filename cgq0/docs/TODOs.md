@@ -2,6 +2,7 @@
 
 > 一行一条 + 指针；做完移入对应 diary/plan 留档后删行。规则见 [../README.md](../README.md)。
 
+- [ ] 验证 CI 产物 `ZCode.fork.app`（蓝底图标）在 mac 上与官方并排安装：互不覆盖、图标区分、退一切换、Dock 16px 辨识度——见 diary/2026-10-25.lin.md 09:47
 - [ ] 删旧 Release `zcode-cli-v3.16.2`（新三产物 Release `v3.16.2` 已接棒，cq 基线已切到新 tag）——见 diary/2026-10-24.mac.md 22:20
 - [ ] 观察(sync-upstream 已跑 2 次 no-op success)：上游真有新提交时的两条未验证分支路径——merged 端到端（自动 push main + dispatch release-cli）与 conflict 自动开 issue；调度惯常延迟 2-3h，某日 05:17 未跑先等到 08:00 再查——事实见 diary/2026-10-23.mac.md
 - [ ] 验证打包版开关"关→重启→注入对+哨兵"（可选，机制已在 dev 日志证明）——见 diary/2026-10-24.mac.md 19:40
