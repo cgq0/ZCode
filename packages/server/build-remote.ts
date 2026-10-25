@@ -61,3 +61,34 @@ validateRemoteServerBundle({ bundledInputs, source: remoteBundleSource });
 await stageThirdPartyNotices("dist/remote");
 
 console.log("Built dist/remote/zcode-server.cjs");
+
+// fork Web 自托管产物：同一套 bundling 规则产出 HTTP 入口（entry-http：静态托管 +
+// /api + /ws RPC）的自包含单文件，供 zcode-webapp staging（cgq0/scripts/stage-webapp.mjs）
+// 与 zcode-serve 启动器使用。native addon 外置（node-pty 在 bundle 同目录 build/Release
+// 下解析，与 stdio bundle 的远端部署布局同一约定）与 notices 规则保持一致。
+const webBuildResult = await build({
+  entryPoints: ["src/entry-http.ts"],
+  bundle: true,
+  outfile: "dist/remote/zcode-web-server.cjs",
+  platform: "node",
+  format: "cjs",
+  target: "node22",
+  plugins: [nativeAddonPlugin],
+  banner: {
+    js: 'var __import_meta_url = require("url").pathToFileURL(__filename).href; var __import_meta_dirname = __dirname;',
+  },
+  define: {
+    "import.meta.url": "__import_meta_url",
+    "import.meta.dirname": "__import_meta_dirname",
+    __ZCODE_VERSION__: JSON.stringify(version),
+    __ZCODE_MIN_COMPATIBLE_VERSION__: JSON.stringify(minCompatibleVersion),
+    __ZCODE_BUILTIN_PROVIDER_CONFIG_JSON__: JSON.stringify(zcodeBuiltinProviderConfigJson),
+  },
+  metafile: true,
+});
+validateRemoteServerBundle({
+  bundledInputs: Object.keys(webBuildResult.metafile.inputs),
+  source: readFileSync("dist/remote/zcode-web-server.cjs", "utf-8"),
+});
+
+console.log("Built dist/remote/zcode-web-server.cjs");
