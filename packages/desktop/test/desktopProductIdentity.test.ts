@@ -115,4 +115,42 @@ describe("desktop product identity", () => {
   it("开发态继续使用独立 AUMID，避免污染打包版 Shell 身份", () => {
     expect(resolveWindowsAppUserModelId({}, { isPackaged: false })).toBe("cn.aminer.zcode");
   });
+
+  it("ZCODE_DESKTOP_PRODUCT_NAME 只覆盖安装包显示名，其余身份字段保持 flavor 原值", () => {
+    const overridden = resolveDesktopProductIdentity({
+      ZCODE_ENV: "production",
+      ZCODE_DESKTOP_PRODUCT_NAME: "ZCode.fork",
+    });
+    expect(overridden).toEqual({ ...desktopProductIdentities.production, productName: "ZCode.fork" });
+    // 身份轴不变：flavor/AUMID/产物后缀仍是 production 语义，与正式版共享 appId 与 userData。
+    expect(resolveDesktopProductFlavor({ ZCODE_ENV: "production" })).toBe("production");
+    expect(
+      resolveWindowsAppUserModelId({
+        ZCODE_ENV: "production",
+        ZCODE_DESKTOP_PRODUCT_NAME: "ZCode.fork",
+      }),
+    ).toBe(desktopProductIdentities.production.appId);
+    // 覆盖同样作用于 Preview 身份（名字是显示层，身份与后端环境分轴）。
+    expect(
+      resolveDesktopProductIdentity({
+        ZCODE_ENV: "test",
+        ZCODE_DESKTOP_PRODUCT_NAME: " ZCode.fork ",
+      }).productName,
+    ).toBe("ZCode.fork");
+  });
+
+  it("产品名覆盖为空时返回冻结身份表对象，含路径分隔符时构建期失败", () => {
+    expect(resolveDesktopProductIdentity({ ZCODE_ENV: "production" })).toBe(
+      desktopProductIdentities.production,
+    );
+    expect(
+      resolveDesktopProductIdentity({ ZCODE_ENV: "production", ZCODE_DESKTOP_PRODUCT_NAME: "  " }),
+    ).toBe(desktopProductIdentities.production);
+    expect(() =>
+      resolveDesktopProductIdentity({
+        ZCODE_ENV: "production",
+        ZCODE_DESKTOP_PRODUCT_NAME: "ZCode/dev",
+      }),
+    ).toThrow(/path separators are not allowed/);
+  });
 });

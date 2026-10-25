@@ -5,6 +5,13 @@
  */
 export const ZCODE_PREVIEW_IDENTITY_ENV = "ZCODE_PREVIEW_IDENTITY";
 
+/**
+ * 产品名覆盖：只改安装包显示名（productName / .app / 菜单栏），不动 appId、Linux 包名、
+ * AUMID 与运行时 userData 目录名——后者按 flavor 固定为 "ZCode"/"ZCode Preview"，保证与
+ * 正式版共享登录态与业务数据、单实例锁互斥（fork 维护者的"可同装、不同时运行"用法）。
+ */
+export const ZCODE_DESKTOP_PRODUCT_NAME_ENV = "ZCODE_DESKTOP_PRODUCT_NAME";
+
 const PRODUCTION_IDENTITY = Object.freeze({
   flavor: "production",
   appId: "dev.zcode.app",
@@ -64,7 +71,19 @@ export function resolveDesktopProductFlavor(env = process.env) {
 }
 
 export function resolveDesktopProductIdentity(env = process.env) {
-  return desktopProductIdentities[resolveDesktopProductFlavor(env)];
+  const identity = desktopProductIdentities[resolveDesktopProductFlavor(env)];
+  const productNameOverride = env[ZCODE_DESKTOP_PRODUCT_NAME_ENV]?.trim() ?? "";
+  if (!productNameOverride) {
+    return identity;
+  }
+  // productName 会进入 ${productName} 产物文件名与 .app 目录名；含路径分隔符的名字
+  // 在构建期直接失败，避免悄悄产出落在意外目录的归档。
+  if (/[\\/]/.test(productNameOverride)) {
+    throw new Error(
+      `invalid ${ZCODE_DESKTOP_PRODUCT_NAME_ENV}=${env[ZCODE_DESKTOP_PRODUCT_NAME_ENV]}; path separators are not allowed`,
+    );
+  }
+  return { ...identity, productName: productNameOverride };
 }
 
 /**
