@@ -1,9 +1,11 @@
 # ============================================================================
-# sync-upstream — cgq0 fork 专属：定时合并上游 zai-org/ZCode
-# （.github 目录例外说明同 release-cli.yml；上游代码不依赖本文件。）
+# sync-upstream — cgq0 fork 专属：合并上游 zai-org/ZCode（仅手动触发）
+# （.github 目录例外说明同 release.yml；上游代码不依赖本文件。）
 #
-# 策略：
-#   - 每日尝试 merge upstream/main，成功则 push 到本 fork 的 main
+# 策略（2026-10-25 裁决，见 cgq0/docs/diary/2026-10-25.lin.md）：
+#   - 不再每日定时：Windows 默认官方版、mac 官方+fork 并存，上游有更新时手动
+#     处理；且定时任务是 fork Actions 被 GitHub 静默禁用时最无感的停摆面
+#   - 手动 dispatch 触发 merge upstream/main，成功则 push 到本 fork 的 main
 #   - 合并冲突或上游重写历史 → 自动开 issue 通知人工处理，不推送任何变更
 #   - 合并成功后显式触发 release（GITHUB_TOKEN 的 push 不会连锁触发其他
 #     workflow，这是 GitHub 的防递归设计，必须手动 dispatch）
@@ -12,8 +14,6 @@
 name: sync-upstream
 
 on:
-  schedule:
-    - cron: "17 21 * * *" # 21:17 UTC = 每日 05:17 北京时间，错开整点调度高峰
   workflow_dispatch:
 
 permissions:
