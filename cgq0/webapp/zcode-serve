@@ -67,8 +67,20 @@ case "$COMMAND" in
       exit 0
     fi
     rm -f "$PID_FILE"
-    # shellcheck disable=SC2093
-    apply_env nohup "$NODE_BIN" "$SERVER_CJS" >>"$LOG_FILE" 2>&1 &
+    # 无 pid 文件但端口已被占（可能是改版前/手工启动的残留实例）：直接失败，
+    # 不能让新实例起不来、probe 却命中旧实例而误报"已启动"。
+    if probe; then
+      echo "端口 $PORT 已被其他进程占用（无本启动器 pid 记录）；请先找到该进程停止，或换 --port" >&2
+      exit 1
+    fi
+    # env 前缀必须直接写在 nohup 行上：经 shell 函数转手时 $! 记的是包装子壳 pid，
+    # node 是它的孩子——stop 只杀得掉壳，node 变孤儿继续监听（实测踩坑，见日记）。
+    # nohup 会 exec node，$! 即 node 本体 pid。
+    PORT="$PORT" ZCODE_SERVER_HOST="$HOST_BIND" \
+    ZCODE_WEB_STATIC_ROOT="$WEBAPP/web" \
+    GLM_BINARY_PATH="$WEBAPP/agent/zcode.cjs" \
+    ${TOKEN:+ZCODE_SERVER_AUTH_TOKEN="$TOKEN"} \
+      nohup "$NODE_BIN" "$SERVER_CJS" >>"$LOG_FILE" 2>&1 &
     PID=$!
     echo "$PID" > "$PID_FILE"
     i=0
@@ -102,7 +114,12 @@ case "$COMMAND" in
     done
     is_alive "$PID" && kill -9 "$PID" 2>/dev/null || true
     rm -f "$PID_FILE"
-    echo "已停止（pid $PID）"
+    # 停止后必须确认端口真释放：还有响应说明有本启动器之外的实例占着端口，如实报告。
+    if probe; then
+      echo "已停止（pid $PID），但端口 $PORT 仍有服务响应——存在 pid 文件之外的实例，请手动排查"
+    else
+      echo "已停止（pid $PID）"
+    fi
     ;;
   status)
     PID=$(read_pid)
