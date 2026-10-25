@@ -1,0 +1,126 @@
+#!/bin/sh
+# zcode-serve — ZCode Web 自托管服务启停（随 release zip 分发，与 zcode-webapp/ 同目录）。
+#
+# 用法：
+#   ./zcode-serve start [--host 127.0.0.1] [--port 3030] [--token <auth-token>]
+#   ./zcode-serve stop      # 幂等：没在跑也返回成功
+#   ./zcode-serve status
+#   ./zcode-serve run       # 前台运行（调试）
+#
+# 行为：start 后台脱离（SSH 断开不亡）；进程管理只认 pid 文件，绝不按进程名匹配；
+# 数据写用户 ~/.zcode（与 desktop/CLI 共享账号凭据，任务按宿主身份分区）。
+# Node 优先用随包 zcode-webapp/node/node，缺失时回退系统 node。
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+WEBAPP="$SCRIPT_DIR/zcode-webapp"
+SERVER_CJS="$WEBAPP/zcode-web-server.cjs"
+STATE_DIR="${HOME:-$PWD}/.zcode/webapp"
+PID_FILE="$STATE_DIR/zcode-serve.pid"
+LOG_FILE="$STATE_DIR/zcode-serve.log"
+
+if [ -x "$WEBAPP/node/node" ]; then
+  NODE_BIN="$WEBAPP/node/node"
+else
+  NODE_BIN=$(command -v node) || { echo "未找到 Node：随包 node 缺失且系统无 node" >&2; exit 1; }
+fi
+
+[ -f "$SERVER_CJS" ] || { echo "缺少 $SERVER_CJS（zcode-serve 需与 zcode-webapp/ 同目录）" >&2; exit 1; }
+
+COMMAND=${1:-start}
+shift $(( $# > 0 ? 1 : 0 ))
+HOST_BIND=127.0.0.1
+PORT=3030
+TOKEN=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --host) HOST_BIND=$2; shift 2 ;;
+    --port) PORT=$2; shift 2 ;;
+    --token) TOKEN=$2; shift 2 ;;
+    *) echo "未知参数：$1（支持 --host/--port/--token）" >&2; exit 2 ;;
+  esac
+done
+
+read_pid() { [ -f "$PID_FILE" ] && cat "$PID_FILE" 2>/dev/null || true; }
+is_alive() { [ -n "${1:-}" ] && kill -0 "$1" 2>/dev/null; }
+
+# 用随包 Node 做就绪探测，避免依赖 curl；消费 body 防止连接挂住。
+probe() {
+  "$NODE_BIN" -e "fetch('http://127.0.0.1:'+'$PORT'+'/api/server-info').then(async r=>{await r.arrayBuffer();process.exit(r.ok?0:1)}).catch(()=>process.exit(1))" 2>/dev/null
+}
+
+apply_env() {
+  PORT="$PORT" ZCODE_SERVER_HOST="$HOST_BIND" \
+  ZCODE_WEB_STATIC_ROOT="$WEBAPP/web" \
+  GLM_BINARY_PATH="$WEBAPP/agent/zcode.cjs" \
+  ${TOKEN:+ZCODE_SERVER_AUTH_TOKEN="$TOKEN"} \
+  "$@"
+}
+
+mkdir -p "$STATE_DIR"
+
+case "$COMMAND" in
+  start)
+    PID=$(read_pid)
+    if is_alive "$PID"; then
+      echo "已在运行（pid $PID），跳过启动"
+      exit 0
+    fi
+    rm -f "$PID_FILE"
+    # shellcheck disable=SC2093
+    apply_env nohup "$NODE_BIN" "$SERVER_CJS" >>"$LOG_FILE" 2>&1 &
+    PID=$!
+    echo "$PID" > "$PID_FILE"
+    i=0
+    while [ $i -lt 20 ]; do
+      if ! is_alive "$PID"; then
+        echo "进程退出，查看日志：$LOG_FILE" >&2
+        exit 1
+      fi
+      if probe; then
+        echo "已启动：http://$HOST_BIND:$PORT（pid $PID，后台脱离）"
+        echo "日志：$LOG_FILE；停止：zcode-serve stop"
+        exit 0
+      fi
+      i=$((i + 1))
+      sleep 1
+    done
+    echo "进程运行中（pid $PID）但 http 未就绪，查看日志：$LOG_FILE"
+    ;;
+  stop)
+    PID=$(read_pid)
+    if ! is_alive "$PID"; then
+      rm -f "$PID_FILE"
+      echo "未在运行"
+      exit 0
+    fi
+    kill "$PID" 2>/dev/null || true
+    i=0
+    while [ $i -lt 10 ] && is_alive "$PID"; do
+      sleep 1
+      i=$((i + 1))
+    done
+    is_alive "$PID" && kill -9 "$PID" 2>/dev/null || true
+    rm -f "$PID_FILE"
+    echo "已停止（pid $PID）"
+    ;;
+  status)
+    PID=$(read_pid)
+    if ! is_alive "$PID"; then
+      echo "状态：未运行"
+      exit 0
+    fi
+    if probe; then
+      echo "状态：运行中（pid $PID，端口 $PORT 探测正常）"
+    else
+      echo "状态：运行中（pid $PID，端口 $PORT 未就绪）"
+    fi
+    ;;
+  run)
+    apply_env exec "$NODE_BIN" "$SERVER_CJS"
+    ;;
+  *)
+    echo "未知命令：$COMMAND（支持 start/stop/status/run）" >&2
+    exit 2
+    ;;
+esac
