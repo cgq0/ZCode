@@ -13,8 +13,8 @@
 #     注入（base 从根 package.json 读取）；desktop 由 build-metadata.mjs 写入
 #     build-meta.json（About 展示）；server stage 本就读根版本。Release tag、zip
 #     文件名、二进制 --version、桌面 About 四处身份一致。
-#   - tag 恒为 v<根 package.json 版本号>（2026-10-24 起，此前为 zcode-cli-v*；改名后
-#     git describe 的 cq.<n> 基线重算一次，一次性跳变，无实际影响）。
+#   - tag 恒为 v<根 package.json 版本号>（2026-10-24 起，此前为 zcode-cli-v*）。tag 不再
+#     参与 cq.<n> 基线：2026-10-25 起基线 = 最近官方同步合并提交（scripts/fork-build-meta.mjs）。
 #   - 每次 push 刷新标题/说明并整体替换资产；旧构建经 Actions run artifacts 回溯
 #     （保留 14 天），Release 页面不累积。
 #
@@ -76,27 +76,26 @@ jobs:
       # 挪到 step 级会让下游拿不到（2026-10-24 首跑三腿同点位失败于 mv 空 target 路径）。
       SERVER_TARGET: ${{ matrix.target == 'win-x64' && 'win32-x64' || matrix.target }}
     steps:
-      # 必须全量历史 + tag：`+cq.<n>.g<sha>` fork 标识构建时跑 git describe 生成
-      # （见 spec 2026-10-21-fork-build-metadata-version-identity），默认浅克隆无 tag
-      # 会让产物退化成 cq.dev.g<sha>，丢失领先 tag 的提交距离。
+      # 必须全量历史 + tag：`+cq.<n>.g<sha>` fork 标识构建时由 scripts/fork-build-meta.mjs
+      # 从 git 推导（基线 = 最近官方同步合并提交，rev-list 需要全量历史），默认浅克隆
+      # 无历史会让产物退化成 cq.dev.g<sha>，丢失提交距离。
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Resolve fork build metadata
-        # zip 资产名与 Release 标题要和二进制 --version 里的身份一致，这里独立解析
-        # 同一份 git 信息（与 build.mjs 的 parseGitDescribeToBuildMetadata 语义一致，
-        # 由 build.test.mjs 锚定）。CI 有全量历史且树干净，解析异常直接失败：
-        # 资产名与二进制不一致比构建失败更糟。
+        # zip 资产名与 Release 标题要和二进制 --version 里的身份一致，这里跑共享脚本
+        # scripts/fork-build-meta.mjs 独立解析同一份 git 信息（cli build.mjs 与 desktop
+        # build-metadata.mjs 同引一个实现，语义由 build.test.mjs 锚定）。脚本对 git 失败
+        # 优雅降级，但 CI 有全量历史且树干净，这里严格校验输出形态：落到 cq.dev 形态
+        # 说明全量历史/锚点假设已破，资产名与二进制不一致比构建失败更糟。
         shell: bash
         run: |
-          META=$(node -e '
-            const { execFileSync } = require("node:child_process");
-            const out = execFileSync("git", ["describe", "--tags", "--long", "--dirty"], { encoding: "utf8" }).trim();
-            const m = /^(.+?)-(\d+)-g([0-9a-f]+)(-dirty)?$/.exec(out);
-            if (!m) { console.error(`unexpected git describe output: ${out}`); process.exit(1); }
-            console.log(["cq", m[2], `g${m[3]}`, m[4] && "dirty"].filter(Boolean).join("."));
-          ')
+          META=$(node scripts/fork-build-meta.mjs)
+          case "$META" in
+            cq.[0-9]*.g[0-9a-f]*) ;;
+            *) echo "unexpected fork build metadata: $META" >&2; exit 1 ;;
+          esac
           echo "FORK_META=$META" >> "$GITHUB_ENV"
 
       # pnpm 版本取自根 package.json 的 packageManager 字段（10.33.2）
@@ -262,20 +261,18 @@ jobs:
           merge-multiple: true
 
       - name: Resolve version and fork metadata
-        # 解析逻辑与 build.mjs 的 parseGitDescribeToBuildMetadata 一致（语义由
-        # build.test.mjs 锚定）；异常直接失败，避免资产名与二进制身份不一致。
+        # 与 build job 同跑 scripts/fork-build-meta.mjs（同 SHA 全量历史，结果必然
+        # 一致）；输出形态严格校验，异常直接失败，避免资产名与二进制身份不一致。
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          META=$(node -e '
-            const { execFileSync } = require("node:child_process");
-            const out = execFileSync("git", ["describe", "--tags", "--long", "--dirty"], { encoding: "utf8" }).trim();
-            const m = /^(.+?)-(\d+)-g([0-9a-f]+)(-dirty)?$/.exec(out);
-            if (!m) { console.error(`unexpected git describe output: ${out}`); process.exit(1); }
-            console.log(["cq", m[2], `g${m[3]}`, m[4] && "dirty"].filter(Boolean).join("."));
-          ')
+          META=$(node scripts/fork-build-meta.mjs)
+          case "$META" in
+            cq.[0-9]*.g[0-9a-f]*) ;;
+            *) echo "unexpected fork build metadata: $META" >&2; exit 1 ;;
+          esac
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "META=$META" >> "$GITHUB_ENV"
 

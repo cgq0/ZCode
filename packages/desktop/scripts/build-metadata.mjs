@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveForkBuildMeta as resolveSharedForkBuildMeta } from "../../../scripts/fork-build-meta.mjs";
 
 const require = createRequire(import.meta.url);
 const moduleDir = import.meta.dirname;
@@ -79,40 +80,16 @@ function resolveCommitId() {
   }
 }
 
-// fork 构建身份（cq.<n>.g<sha>[.dirty]），与 apps/zcode-cli/packages/cli/scripts/build.mjs
-// 的 parseGitDescribeToBuildMetadata 同一语义；跨包无法直接 import 该 ESM，这里独立维护
-// 同款正则（该处语义由其 build.test.mjs 锚定）。macOS 的 CFBundleShortVersionString 只接受
-// 纯数字三段版本，`+cq...` 进不了系统版本号，About 的身份展示走本字段。CI 全量历史下与
-// Release zip 文件名、cli/server 二进制 --version 三处一致（2026-10-24 统一发版裁决）。
+// fork 构建身份（cq.<n>.g<sha>[.dirty]）：基线 = 最近官方同步合并提交（2026-10-25
+// 裁决），算法单点实现在仓库根 scripts/fork-build-meta.mjs——cli build.mjs 与
+// release.yml 同引该模块，语义由 cli 的 build.test.mjs 锚定，这里不再独立维护正则。
+// env 覆盖是本包唯一的本地策略：CI 注入或本地复现特定身份时用。macOS 的
+// CFBundleShortVersionString 只接受纯数字三段版本，`+cq...` 进不了系统版本号，
+// About 的身份展示走本字段（2026-10-24 统一发版裁决）。
 function resolveForkBuildMeta() {
   const override = process.env.ZCODE_FORK_BUILD_META?.trim();
   if (override) return override;
-  try {
-    const out = execSync("git describe --tags --long --dirty", {
-      cwd: workspaceDir,
-      stdio: ["ignore", "pipe", "ignore"],
-    })
-      .toString()
-      .trim();
-    const match = /^(.+?)-(\d+)-g([0-9a-f]+)(-dirty)?$/.exec(out);
-    if (match) {
-      return ["cq", match[2], `g${match[3]}`, match[4] && "dirty"].filter(Boolean).join(".");
-    }
-  } catch {
-    // 无 tag 或非 git 检出：走 rev-parse 回退。
-  }
-  try {
-    const shortSha = execSync("git rev-parse --short HEAD", {
-      cwd: workspaceDir,
-      stdio: ["ignore", "pipe", "ignore"],
-    })
-      .toString()
-      .trim();
-    if (/^[0-9a-f]{4,40}$/.test(shortSha)) return `cq.dev.g${shortSha}`;
-  } catch {
-    // rev-parse 也失败：不是 git 检出。
-  }
-  return "cq.dev";
+  return resolveSharedForkBuildMeta({ cwd: workspaceDir });
 }
 
 export function collectBuildMetadata() {

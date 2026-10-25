@@ -14,6 +14,7 @@ import {
   resolveBuildAliases,
   resolveBuildOptions,
   resolveBuildExternal,
+  resolveForkBuildMeta,
   resolveForkCliVersion,
 } from "../scripts/build.mjs";
 
@@ -196,44 +197,107 @@ test("fork build metadata derives commit distance and sha from git describe outp
   assert.equal(parseGitDescribeToBuildMetadata(""), undefined);
 });
 
-test("fork CLI version falls back from describe to rev-parse to a dev tag", async () => {
-  const describeOk = async (args) => {
-    if (args[0] !== "describe") throw new Error(`unexpected git call: ${args[0]}`);
-    return "zcode-cli-v3.16.2-9-gd4bbd48d\n";
-  };
-  const revParseOnly = async (args) => {
-    if (args[0] !== "rev-parse")
-      throw new Error("fatal: no names found, cannot describe anything.");
-    return "deadbeef\n";
-  };
-  const revParseGarbage = async (args) => {
-    if (args[0] !== "rev-parse")
-      throw new Error("fatal: no names found, cannot describe anything.");
-    return "HEAD\n";
-  };
-  const gitMissing = async () => {
-    throw new Error("spawn git ENOENT");
-  };
+// 按子命令分发的同步 execGit 桩：resolveForkBuildMeta 是同步 API，调用序列为
+// rev-list(找同步合并) → rev-list --count → rev-parse --short → status --porcelain，
+// 未命中锚点或拼装失败时依次回退 describe → rev-parse → cq.dev（spec 规则 2/4）。
+const gitStub = ({
+  mergeSha = "",
+  count = "1",
+  head = "8527891c",
+  status = "",
+  describe,
+} = {}) => (args) => {
+  if (args[0] === "rev-list" && args[1] === "HEAD") return mergeSha;
+  if (args[0] === "rev-list") return count;
+  if (args[0] === "rev-parse") return head;
+  if (args[0] === "status") {
+    // 模拟 --untracked-files=no：实现必须带该标志，untracked 行不构成 dirty。
+    return args.includes("--untracked-files=no")
+      ? status
+          .split("\n")
+          .filter((line) => line !== "" && !line.startsWith("??"))
+          .join("\n")
+      : status;
+  }
+  if (args[0] === "describe") {
+    if (!describe) throw new Error("fatal: no names found, cannot describe anything.");
+    return describe;
+  }
+  throw new Error(`unexpected git call: ${args[0]}`);
+};
 
+const syncMergeSha = "5ad928cc0000000000000000000000000000abcd";
+
+test("fork build metadata anchors the count to the latest official sync merge commit", () => {
+  // fork 自己的发版 tag（v3.16.2 落在 fork 提交上）会重置计数，基线必须锚在
+  // 官方同步合并提交上（2026-10-25 裁决，spec 规则 2）。
   assert.equal(
-    await resolveForkCliVersion({ baseVersion: "0.17.0", execGit: describeOk }),
-    "0.17.0+cq.9.gd4bbd48d",
+    resolveForkBuildMeta({
+      execGit: gitStub({ mergeSha: syncMergeSha, count: "43\n", head: "8527891c\n", status: "" }),
+    }),
+    "cq.43.g8527891c",
+  );
+  // --untracked-files=no 口径：已跟踪文件有未提交改动才算 dirty（对齐 describe --dirty）。
+  assert.equal(
+    resolveForkBuildMeta({
+      execGit: gitStub({
+        mergeSha: syncMergeSha,
+        count: "43\n",
+        head: "8527891c\n",
+        status: "?? scripts/fork-build-meta.mjs\n",
+      }),
+    }),
+    "cq.43.g8527891c",
   );
   assert.equal(
-    await resolveForkCliVersion({ baseVersion: "0.17.0", execGit: revParseOnly }),
-    "0.17.0+cq.dev.gdeadbeef",
+    resolveForkBuildMeta({
+      execGit: gitStub({
+        mergeSha: syncMergeSha,
+        count: "43\n",
+        head: "8527891c\n",
+        status: " M scripts/build.mjs\n",
+      }),
+    }),
+    "cq.43.g8527891c.dirty",
   );
+});
+
+test("fork build metadata falls back from sync-merge anchor to describe to a dev tag", () => {
+  // 无同步合并（rev-list 空输出）→ describe 旧口径（tag 基线）。
   assert.equal(
-    await resolveForkCliVersion({ baseVersion: "0.17.0", execGit: revParseGarbage }),
-    "0.17.0+cq.dev",
+    resolveForkBuildMeta({
+      execGit: gitStub({ describe: "zcode-cli-v3.16.2-9-gd4bbd48d\n" }),
+    }),
+    "cq.9.gd4bbd48d",
   );
+  // 锚点命中但计数解析出脏数据 → describe 回退。
   assert.equal(
-    await resolveForkCliVersion({ baseVersion: "0.17.0", execGit: gitMissing }),
-    "0.17.0+cq.dev",
+    resolveForkBuildMeta({
+      execGit: gitStub({ mergeSha: syncMergeSha, count: "not-a-number", describe: "v3.16.2-7-gdeadbee" }),
+    }),
+    "cq.7.gdeadbee",
   );
+  // 无合并 + describe 失败（浅克隆/无 tag）→ cq.dev.g<短 SHA>。
+  assert.equal(resolveForkBuildMeta({ execGit: gitStub({ head: "deadbeef\n" }) }), "cq.dev.gdeadbeef");
+  // rev-parse 输出垃圾 → cq.dev。
+  assert.equal(resolveForkBuildMeta({ execGit: gitStub({ head: "HEAD\n" }) }), "cq.dev");
+  // git 完全缺失（tarball 检出）→ cq.dev。
+  assert.equal(
+    resolveForkBuildMeta({
+      execGit: () => {
+        throw new Error("spawn git ENOENT");
+      },
+    }),
+    "cq.dev",
+  );
+});
+
+test("fork CLI version rebuilds base with fork metadata without stacking", () => {
+  const anchored = gitStub({ mergeSha: syncMergeSha, count: "9\n", head: "d4bbd48d\n", status: "" });
+  assert.equal(resolveForkCliVersion({ baseVersion: "0.17.0", execGit: anchored }), "0.17.0+cq.9.gd4bbd48d");
   // base 上已残留 build metadata 时以本仓库 git 信息整体重建，不叠加多段。
   assert.equal(
-    await resolveForkCliVersion({ baseVersion: "0.17.0+stale", execGit: describeOk }),
+    resolveForkCliVersion({ baseVersion: "0.17.0+stale", execGit: anchored }),
     "0.17.0+cq.9.gd4bbd48d",
   );
 });

@@ -1,11 +1,10 @@
-import { execFile } from "node:child_process";
 import { chmod, readFile, rm } from "node:fs/promises";
 import { basename, dirname, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { promisify } from "node:util";
 import { build } from "esbuild";
 import sharedPackage from "../../../../../packages/shared/package.json" with { type: "json" };
 import { stageBuiltinProviderConfig } from "../../../../../scripts/builtin-provider-config.mjs";
+import { parseGitDescribeToBuildMetadata, resolveForkBuildMeta } from "../../../../../scripts/fork-build-meta.mjs";
 import { stageThirdPartyNotices } from "../../../../../scripts/third-party-notices.mjs";
 
 const cliRoot = resolve(import.meta.dirname, "..");
@@ -128,60 +127,19 @@ export const readRootPackageVersion = async ({ root = projectRoot } = {}) => {
 // 上游同一版本号可能对应多份代码与多个构建，fork 修复后若仍只报 package.json 的
 // version，就无法区分"修过 bug"与"没修过"的产物。按 SemVer 规范，`+` 之后的 build
 // metadata 不参与优先级比较（`-` 预发布后缀会被判为低于正式版），因此 fork 身份放进
-// `+`：`3.16.2+cq.5.g87a2c2c4.dirty` = 领先最近 tag 5 个提交、短 SHA 87a2c2c4、工作区
-// 有未提交改动。base 取 monorepo 根版本（2026-10-24 裁决：fork 三产物 cli/server/desktop
-// 统一显示同一版本，与 Release tag `v3.16.2`、zip 文件名同源；此前取 CLI workspace 自己
-// 的 0.x 版本，与根版本双轨并行只会让三产物身份对不上）。tag 名不入 metadata。
-const execFileAsync = promisify(execFile);
-const describeOutputPattern = /^(.+?)-(\d+)-g([0-9a-f]+)(-dirty)?$/;
-const buildMetadataPattern = /^[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*$/;
-const shortShaPattern = /^[0-9a-f]{4,40}$/;
+// `+`：`3.16.2+cq.43.g8527891c.dirty` = 距最近官方同步合并提交 43 个提交、短 SHA
+// 8527891c、工作区有未提交改动。base 取 monorepo 根版本（2026-10-24 裁决：fork 三产物
+// cli/server/desktop 统一显示同一版本，与 Release tag `v3.16.2`、zip 文件名同源）。
+// 基线锚点与回退链单点实现在仓库根 scripts/fork-build-meta.mjs（2026-10-25 裁决：
+// 基线 = 最近官方同步合并提交；fork 自己的发版 tag 作基线会把计数重置成「距上次
+// 发版」，v3.16.2 发布后 dev 本地构建得 cq.2 即此 bug）。desktop build-metadata.mjs
+// 与 release.yml 同引该模块，语义由本包 build.test.mjs 锚定。
+export { parseGitDescribeToBuildMetadata, resolveForkBuildMeta };
 
-export const parseGitDescribeToBuildMetadata = (output) => {
-  const text = output.trim();
-  // `describe --tags --long --dirty` 固定输出 `<tag>-<n>-g<sha>[-dirty]`；tag 本身可含
-  // `-`（如 zcode-cli-v3.16.2），靠懒惰匹配 + 整体锚定把最后两段留给提交数和短 SHA。
-  const match = describeOutputPattern.exec(text);
-  if (!match) return undefined;
-  const metadata = ["cq", match[2], `g${match[3]}`, ...(match[4] ? ["dirty"] : [])].join(".");
-  // build metadata 只允许 [0-9A-Za-z-] 与点分隔；异常 tag 解析出脏数据时按失败回退。
-  return buildMetadataPattern.test(metadata) ? metadata : undefined;
-};
-
-const defaultExecGit = (args, cwd) =>
-  execFileAsync("git", args, { cwd }).then(({ stdout }) => stdout);
-
-export const resolveForkBuildMetadata = async ({
-  cwd = projectRoot,
-  execGit = defaultExecGit,
-} = {}) => {
-  // 优先 describe（提交数给出可读的相对递进）；无 tag 或浅克隆退回短 SHA；tarball 等
-  // 完全无 git 的环境用 cq.dev。任何失败都不挡构建——版本只影响可辨识度。
-  try {
-    const metadata = parseGitDescribeToBuildMetadata(
-      await execGit(["describe", "--tags", "--long", "--dirty"], cwd),
-    );
-    if (metadata) return metadata;
-  } catch {
-    // 无 tag 或非 git 检出：走 rev-parse 回退。
-  }
-  try {
-    const shortSha = (await execGit(["rev-parse", "--short", "HEAD"], cwd)).trim();
-    if (shortShaPattern.test(shortSha)) return `cq.dev.g${shortSha}`;
-  } catch {
-    // rev-parse 也失败：不是 git 检出。
-  }
-  return "cq.dev";
-};
-
-export const resolveForkCliVersion = async ({
-  baseVersion,
-  cwd = projectRoot,
-  execGit = defaultExecGit,
-}) => {
+export const resolveForkCliVersion = ({ baseVersion, cwd = projectRoot, execGit } = {}) => {
   // base 上若已残留 build metadata，以本仓库 git 信息为准整体重建，不叠加多段。
   const [base] = baseVersion.split("+");
-  return `${base}+${await resolveForkBuildMetadata({ cwd, execGit })}`;
+  return `${base}+${resolveForkBuildMeta({ cwd, execGit })}`;
 };
 
 export const resolveBuildOptions = (args = [], env = process.env) => {
