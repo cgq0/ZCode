@@ -1,4 +1,4 @@
-# zcode-serve — ZCode Web 自托管服务启停（Windows PowerShell 版，与 zcode-webapp/ 同目录）。
+﻿# zcode-serve — ZCode Web 自托管服务启停（Windows PowerShell 版，与 zcode-webapp/ 同目录）。
 #
 # 用法：
 #   .\zcode-serve.ps1 start [-HostBind 127.0.0.1] [-Port 3030] [-Token <auth-token>]
@@ -67,6 +67,12 @@ switch ($Command) {
       return
     }
     if ($existing) { Remove-Item $PidFile -Force -ErrorAction SilentlyContinue }
+    # 无 pid 记录但端口已有响应（可能是手工启动/改版前的残留实例）：直接失败。
+    # 否则新实例因端口占用退出前，就绪探测会命中旧实例而误报"已启动"（实测踩坑，
+    # 与 sh 版 947e1a25 修复同步的防护）。
+    if (Test-HttpReady) {
+      Write-Error "端口 $Port 已被其他进程占用（无本启动器 pid 记录）；请先找到该进程停止，或换 -Port"
+    }
     Apply-Env
     $process = Start-Process -FilePath $NodeBin -ArgumentList "`"$ServerCjs`"" `
       -WindowStyle Hidden -PassThru `
@@ -96,7 +102,12 @@ switch ($Command) {
     for ($i = 0; $i -lt 10 -and (Test-Alive $existing); $i++) { Start-Sleep -Seconds 1 }
     if (Test-Alive $existing) { Stop-Process -Id $existing -Force -ErrorAction SilentlyContinue }
     Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
-    Write-Output "已停止（pid $existing）"
+    # 停止后必须确认端口真释放：仍有响应说明存在 pid 文件之外的实例占着端口，如实报告。
+    if (Test-HttpReady) {
+      Write-Output "已停止（pid $existing），但端口 $Port 仍有服务响应——存在 pid 文件之外的实例，请手动排查"
+    } else {
+      Write-Output "已停止（pid $existing）"
+    }
   }
   "status" {
     $existing = Read-ServePid
