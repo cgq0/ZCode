@@ -150,6 +150,10 @@ jobs:
         # entry-http 自包含 bundle + web 静态 + agent zcode.cjs + node-pty 原生模块 +
         # 随包 Node（复用 server-cli 的缓存/镜像链）。zip 内与 zcode-serve(.ps1) 同级。
         # win-x64 → win32-x64 映射沿用原 SERVER_TARGET 约定。
+        # 必须 shell: bash：多行命令用 bash 的 \ 续行，windows runner 默认 PowerShell
+        # 不认续行符，--target 会被当新语句报 ParserError（解析期失败，整步不执行，
+        # 2026-10-27 实测踩坑；af93ce63 引入该步骤后首次上 CI 才暴露）。
+        shell: bash
         run: |
           pnpm --filter @zcode/server build
           pnpm --filter @zcode/web build
