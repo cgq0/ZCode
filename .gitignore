@@ -78,3 +78,7 @@ __pycache__/
 # ZCode harness 在工作区落盘的会话产物（plan 模式批准计划 .zcode/plans/、动态工作流 .zcode/workflows/ 等），
 # 用 plan/workflow 就会重建，属于会话产物不入库。
 .zcode/
+
+# zcode-serve 本地 staging 运行时（cgq0/scripts/stage-webapp.mjs --out 产物，274MB 构建产物，
+# 与 dist/ 同性质；随 release zip 分发由 CI 打包，本地自托管按需重建）。
+cgq0/webapp/zcode-webapp/
