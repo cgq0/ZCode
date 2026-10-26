@@ -147,9 +147,12 @@ async function main() {
   // 否则 Windows 本地 staging 直接报"缺少产物"（2026-10-25 实测踩坑）。
   const ptyBuildRelease = join(repoRoot, "node_modules/node-pty/build/Release");
   const ptyPrebuilds = join(repoRoot, "node_modules/node-pty/prebuilds", target);
-  const ptySourceDir = (await pathExists(join(ptyBuildRelease, "pty.node")))
-    ? ptyBuildRelease
-    : ptyPrebuilds;
+  // build/Release 是本机源码构建产物，只有 target 与本机平台+架构一致时才是正确二进制；
+  // 交叉 staging（如 mac 打 win32 包）必须用 prebuilds/<target>，否则会把本机架构的
+  // pty.node 静默打进别平台产物（2026-10-26 Linux 实测命中：win32 包里塞进 Linux 二进制）。
+  const hostTarget = `${process.platform}-${process.arch}`;
+  const fromPrebuilds = target !== hostTarget || !(await pathExists(join(ptyBuildRelease, "pty.node")));
+  const ptySourceDir = fromPrebuilds ? ptyPrebuilds : ptyBuildRelease;
   const ptyNode = join(ptySourceDir, "pty.node");
   for (const [path, hint] of [
     [serverBundle, "pnpm --filter @zcode/server build"],
@@ -174,14 +177,17 @@ async function main() {
 
   // node-pty 原生模块按 bundle 同目录 build/Release 布局（node-pty loadNativeModule
   // 依次探测 ./build/Release、./prebuilds，staging 统一收敛到 build/Release 一种约定，
-  // 与 stdio bundle 的远端部署布局一致）。源目录两种：源码构建（build/Release，只含
-  // pty.node + spawn-helper，其余是 node-gyp 中间产物要过滤）或 prebuild 目录（Windows
-  // 还需 conpty.node、conpty/（OpenConsole.exe+conpty.dll）、winpty.dll、
-  // winpty-agent.exe，缺了终端起不来；*.pdb 调试符号不需要）。子目录按目录整体拷贝。
+  // 与 stdio bundle 的远端部署布局一致）。拷贝规则按源目录类型二分：
+  // - 源码构建（build/Release）：只取 pty.node + spawn-helper（后者仅 macOS 有）。
+  //   node-gyp 中间产物目录（obj.target/、.deps/、node-addon-api/）必须过滤——
+  //   2026-10-26 实测曾因目录无条件保留而混进 Linux staging 产物和发布 zip。
+  // - prebuild 目录：子目录整体拷贝（Windows 还需 conpty/（OpenConsole.exe+
+  //   conpty.dll），缺了终端起不来）；.node/.dll/.exe 按扩展名保留（conpty.node、
+  //   conpty_console_list.node、winpty.dll、winpty-agent.exe）；*.pdb 调试符号过滤。
   await mkdir(join(outDir, "build/Release"), { recursive: true });
   for (const entry of await readdir(ptySourceDir, { withFileTypes: true })) {
     const keep =
-      entry.isDirectory() ||
+      (entry.isDirectory() && fromPrebuilds) ||
       entry.name.endsWith(".node") ||
       entry.name.endsWith(".dll") ||
       entry.name.endsWith(".exe") ||
