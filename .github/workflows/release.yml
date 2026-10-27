@@ -185,8 +185,16 @@ jobs:
         # macOS 无 GNU timeout（brew coreutils 提供 gtimeout），动态探测。
         shell: bash
         run: |
-          exe="apps/zcode-cli/packages/cli/dist/zcode-${{ matrix.target }}"
-          [ "${{ matrix.target }}" = "win-x64" ] && exe="$exe.exe" || true
+          # 产物名映射与 Package 步骤一致（win-x64 → zcode-windows-x64.exe，其余
+          # target 与产物同名；按 ${{ matrix.target }} 直接拼接会拼出
+          # zcode-win-x64.exe 找不到文件——run 40536478016 实测 exit 127）。
+          case "${{ matrix.target }}" in
+            win-x64)      exe="apps/zcode-cli/packages/cli/dist/zcode-windows-x64.exe" ;;
+            linux-x64)    exe="apps/zcode-cli/packages/cli/dist/zcode-linux-x64" ;;
+            darwin-x64)   exe="apps/zcode-cli/packages/cli/dist/zcode-darwin-x64" ;;
+            darwin-arm64) exe="apps/zcode-cli/packages/cli/dist/zcode-darwin-arm64" ;;
+            *) echo "unknown target" >&2; exit 1 ;;
+          esac
           to="$(command -v timeout || command -v gtimeout)"
           [ -n "$to" ] || { echo "::error::no timeout tool on runner"; exit 1; }
           set +e
