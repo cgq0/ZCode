@@ -39,6 +39,8 @@
 #
 # 平台矩阵：linux-x64 / win-x64 / darwin-x64（+desktop）/ darwin-arm64。
 # darwin 目标必须在 macOS runner 上构建（SEA 注入后需 codesign 临时签名）。
+# 2026-10-27 实测：macos-latest 排队 15 分钟未分配 runner 直接 cancelled
+# （win/linux 正常），偶发时段性；若持续复现需错峰重跑或审视账号 macOS 并发额度。
 # ============================================================================
 
 name: release
