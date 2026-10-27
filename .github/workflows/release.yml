@@ -123,12 +123,17 @@ jobs:
         # binding.gyp 与 src/binding.c，就地重编译覆盖 win32-x64 prebuild，后续
         # sea-tui-assets 收集与运行时 node-gyp-build 查找都命中 prebuilds 路径。
         # 仅 win-x64：darwin/linux 的 zig prebuild 走平台动态符号解析，无此问题。
+        # node-gyp 必须 >=12.1（VS 2026/18.x 识别，13.0.1 修版本解析）：runner 已升级
+        # VS 18 Enterprise，11.x 报 unknown version 直接 find VS 失败（2026-10-27
+        # run 40532699443 实测；pnpm install 里 cpu-features 的 node-gyp@11 同样失败，
+        # 只是 optional 不阻塞）。包根解析用 require.resolve('unsafe-pointer')：
+        # 该包 exports 未暴露 ./package.json 子路径（首跑 ERR_PACKAGE_PATH_NOT_EXPORTED）。
         if: matrix.target == 'win-x64'
         shell: bash
         run: |
-          pkg="$(node -p "require('path').dirname(require.resolve('unsafe-pointer/package.json'))")"
+          pkg="$(node -p "require('path').dirname(require.resolve('unsafe-pointer'))")"
           echo "unsafe-pointer package dir: $pkg"
-          (cd "$pkg" && npx -y node-gyp@11 rebuild)
+          (cd "$pkg" && npx -y node-gyp@13 rebuild)
           cp "$pkg/build/Release/unsafe-pointer.node" "$pkg/prebuilds/win32-x64/unsafe-pointer.node"
           echo "win32-x64 prebuild replaced with node-gyp (MSVC) build"
 
