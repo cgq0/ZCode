@@ -378,6 +378,27 @@ jobs:
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "META=$META" >> "$GITHUB_ENV"
 
+      - name: Move release tag to build commit
+        # Release 页面的 source.zip/tar.gz 是 GitHub 按 tag 指向自动生成的归档。
+        # tag 只在首次 gh release create 时打在当时的 HEAD，此后每次 push 仅
+        # edit+替换资产、tag 不动——归档停留在旧 commit（实测 v3.16.2 停在
+        # 2026-10-24，与 zip 资产对应的源码差数日）。tag 不参与版本身份
+        # （cq.<n>.g<sha> 基线来自 fork-build-meta），每次构建把 tag 刷到当前
+        # SHA，保持 source 归档与资产同源（GitHub 惰性重生成，有 CDN 缓存延迟）。
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TAG="v$VERSION"
+          current="$(git rev-parse "refs/tags/$TAG" 2>/dev/null || true)"
+          if [ "$current" = "$GITHUB_SHA" ]; then
+            echo "tag $TAG already at $GITHUB_SHA"
+            exit 0
+          fi
+          git tag -f "$TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$TAG" --force
+          echo "moved tag $TAG: ${current:-<none>} -> $GITHUB_SHA"
+
       - name: Create or refresh GitHub Release
         # 固定单条 Release：标题/说明随每次构建刷新，资产先删后传整体替换，
         # 页面上只有最新一份且文件名与本次构建一一对应（2026-10-21 裁决）。

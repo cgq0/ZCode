@@ -55,7 +55,16 @@ function Apply-Env {
   $env:PORT = "$Port"
   $env:ZCODE_SERVER_HOST = $HostBind
   $env:ZCODE_WEB_STATIC_ROOT = Join-Path $Webapp "web"
-  $env:GLM_BINARY_PATH = Join-Path $Webapp "agent\zcode.cjs"
+  # agent 启动用显式命令语义（server 端 agent resolver 第一优先级），不能用
+  # GLM_BINARY_PATH——它指向 .cjs 会被 resolver 当"原生二进制"直接 spawn，
+  # Windows 直接 spawn EFTYPE（2026-10-27 win 实测：发消息必败，日志
+  # sendConversationCommandV4 FAIL Error: spawn EFTYPE，UI 报"草稿会话创建
+  # 失败"；sh 版同因，两处必须同步改）。改为 spawn 随包 node 跑 agent bundle。
+  # ARGS_JSON 路径必须正斜杠：JSON 反斜杠是非法转义（实测 Bad escaped
+  # character in JSON），Node Windows 接受正斜杠。
+  $AgentCjs = (Join-Path $Webapp "agent\zcode.cjs") -replace '\\', '/'
+  $env:ZCODE_AGENT_SERVER_COMMAND = $NodeBin
+  $env:ZCODE_AGENT_SERVER_ARGS_JSON = "[`"$AgentCjs`",`"app-server`",`"--stdio`"]"
   if ($Token) { $env:ZCODE_SERVER_AUTH_TOKEN = $Token }
 }
 

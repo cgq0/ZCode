@@ -52,10 +52,20 @@ probe() {
   "$NODE_BIN" -e "fetch('http://127.0.0.1:'+'$PORT'+'/api/server-info').then(async r=>{await r.arrayBuffer();process.exit(r.ok?0:1)}).catch(()=>process.exit(1))" 2>/dev/null
 }
 
+# agent 启动环境：用显式命令语义 ZCODE_AGENT_SERVER_*（server 端 agent resolver
+# 的第一优先级；apply_env 与下方 nohup 行两处必须同步改），不能用
+# GLM_BINARY_PATH——它指向 .cjs 时会被 resolver 当"原生二进制"直接 spawn：
+# mac/Linux 靠 shebang 命中系统 node 勉强能跑（用的不是随包 node，"无需系统
+# 依赖"实际未达成），Windows 直接 spawn EFTYPE（2026-10-27 win 实测：发消息必败，
+# 日志 sendConversationCommandV4 FAIL Error: spawn EFTYPE，UI 报"草稿会话创建
+# 失败"）。改为 spawn 随包 node 跑 agent bundle，三平台一致且不依赖系统 node。
+# ARGS_JSON 路径用正斜杠：JSON 反斜杠是非法转义，Node 全平台接受正斜杠。
+
 apply_env() {
   PORT="$PORT" ZCODE_SERVER_HOST="$HOST_BIND" \
   ZCODE_WEB_STATIC_ROOT="$WEBAPP/web" \
-  GLM_BINARY_PATH="$WEBAPP/agent/zcode.cjs" \
+  ZCODE_AGENT_SERVER_COMMAND="$NODE_BIN" \
+  ZCODE_AGENT_SERVER_ARGS_JSON="[\"$WEBAPP/agent/zcode.cjs\",\"app-server\",\"--stdio\"]" \
   ${TOKEN:+ZCODE_SERVER_AUTH_TOKEN="$TOKEN"} \
   "$@"
 }
@@ -81,7 +91,8 @@ case "$COMMAND" in
     # nohup 会 exec node，$! 即 node 本体 pid。
     PORT="$PORT" ZCODE_SERVER_HOST="$HOST_BIND" \
     ZCODE_WEB_STATIC_ROOT="$WEBAPP/web" \
-    GLM_BINARY_PATH="$WEBAPP/agent/zcode.cjs" \
+    ZCODE_AGENT_SERVER_COMMAND="$NODE_BIN" \
+    ZCODE_AGENT_SERVER_ARGS_JSON="[\"$WEBAPP/agent/zcode.cjs\",\"app-server\",\"--stdio\"]" \
     ${TOKEN:+ZCODE_SERVER_AUTH_TOKEN="$TOKEN"} \
       nohup "$NODE_BIN" "$SERVER_CJS" >>"$LOG_FILE" 2>&1 &
     PID=$!
