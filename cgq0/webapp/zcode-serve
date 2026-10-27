@@ -12,6 +12,9 @@
 # Node 优先用随包 zcode-webapp/node/node，缺失时回退系统 node。
 set -eu
 
+# bash 扫描变量名时会把紧跟其后多字节字符的首字节黏进变量名（set -u 下报 unbound variable），
+# 故下方中文提示里紧邻全角标点的变量必须写成 ${VAR}，不能省大括号。
+
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 WEBAPP="$SCRIPT_DIR/zcode-webapp"
 SERVER_CJS="$WEBAPP/zcode-web-server.cjs"
@@ -25,7 +28,7 @@ else
   NODE_BIN=$(command -v node) || { echo "未找到 Node：随包 node 缺失且系统无 node" >&2; exit 1; }
 fi
 
-[ -f "$SERVER_CJS" ] || { echo "缺少 $SERVER_CJS（zcode-serve 需与 zcode-webapp/ 同目录）" >&2; exit 1; }
+[ -f "$SERVER_CJS" ] || { echo "缺少 ${SERVER_CJS}（zcode-serve 需与 zcode-webapp/ 同目录）" >&2; exit 1; }
 
 COMMAND=${1:-start}
 shift $(( $# > 0 ? 1 : 0 ))
@@ -63,7 +66,7 @@ case "$COMMAND" in
   start)
     PID=$(read_pid)
     if is_alive "$PID"; then
-      echo "已在运行（pid $PID），跳过启动"
+      echo "已在运行（pid ${PID}），跳过启动"
       exit 0
     fi
     rm -f "$PID_FILE"
@@ -90,14 +93,14 @@ case "$COMMAND" in
         exit 1
       fi
       if probe; then
-        echo "已启动：http://$HOST_BIND:$PORT（pid $PID，后台脱离）"
-        echo "日志：$LOG_FILE；停止：zcode-serve stop"
+        echo "已启动：http://$HOST_BIND:${PORT}（pid ${PID}，后台脱离）"
+        echo "日志：${LOG_FILE}；停止：zcode-serve stop"
         exit 0
       fi
       i=$((i + 1))
       sleep 1
     done
-    echo "进程运行中（pid $PID）但 http 未就绪，查看日志：$LOG_FILE"
+    echo "进程运行中（pid ${PID}）但 http 未就绪，查看日志：$LOG_FILE"
     ;;
   stop)
     PID=$(read_pid)
@@ -116,9 +119,9 @@ case "$COMMAND" in
     rm -f "$PID_FILE"
     # 停止后必须确认端口真释放：还有响应说明有本启动器之外的实例占着端口，如实报告。
     if probe; then
-      echo "已停止（pid $PID），但端口 $PORT 仍有服务响应——存在 pid 文件之外的实例，请手动排查"
+      echo "已停止（pid ${PID}），但端口 $PORT 仍有服务响应——存在 pid 文件之外的实例，请手动排查"
     else
-      echo "已停止（pid $PID）"
+      echo "已停止（pid ${PID}）"
     fi
     ;;
   status)
@@ -128,16 +131,16 @@ case "$COMMAND" in
       exit 0
     fi
     if probe; then
-      echo "状态：运行中（pid $PID，端口 $PORT 探测正常）"
+      echo "状态：运行中（pid ${PID}，端口 $PORT 探测正常）"
     else
-      echo "状态：运行中（pid $PID，端口 $PORT 未就绪）"
+      echo "状态：运行中（pid ${PID}，端口 $PORT 未就绪）"
     fi
     ;;
   run)
     apply_env exec "$NODE_BIN" "$SERVER_CJS"
     ;;
   *)
-    echo "未知命令：$COMMAND（支持 start/stop/status/run）" >&2
+    echo "未知命令：${COMMAND}（支持 start/stop/status/run）" >&2
     exit 2
     ;;
 esac
