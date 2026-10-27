@@ -197,18 +197,38 @@ jobs:
             darwin-arm64) exe="apps/zcode-cli/packages/cli/dist/zcode-darwin-arm64" ;;
             *) echo "unknown target" >&2; exit 1 ;;
           esac
-          to="$(command -v timeout || command -v gtimeout)"
-          [ -n "$to" ] || { echo "::error::no timeout tool on runner"; exit 1; }
-          set +e
-          out="$("$to" 90 "$exe" tui < /dev/null 2>&1)"; code=$?
-          set -e
-          echo "tui smoke exit=$code"
-          echo "$out" | head -5
-          if [ "$code" -ne 1 ]; then
-            echo "::error::SEA tui exited $code (expected 1 with interactive-terminal message)"
+          # 统一用 node 包装跑并捕获退出码/输出：GNU timeout 三平台不可靠——macOS
+          # 无 timeout/gtimeout，且 bash -e 下 to=$(command -v ... || ...) 链尾失败
+          # 的非零退出码会静默杀掉整个脚本（run 40540577375 darwin 两 leg 在
+          # ##[endgroup] 后零输出即 exit 1，即死于此，SEA 实际根本没跑）。
+          out="$(node --input-type=commonjs -e '
+            const { spawn } = require("node:child_process");
+            const [exe, sec] = process.argv.slice(1);
+            const child = spawn(exe, ["tui"], { stdio: ["ignore", "pipe", "pipe"] });
+            let out = "";
+            child.stdout.on("data", (d) => (out += d));
+            child.stderr.on("data", (d) => (out += d));
+            const timer = setTimeout(() => {
+              console.log("SMOKE_TIMEOUT");
+              child.kill("SIGKILL");
+            }, Number(sec) * 1000);
+            child.on("error", (e) => {
+              clearTimeout(timer);
+              console.log("SMOKE_SPAWN_ERROR:" + e.message);
+            });
+            child.on("close", (code) => {
+              clearTimeout(timer);
+              console.log("SMOKE_EXIT:" + (code === null ? "killed" : code));
+              if (out) console.log(out);
+            });
+          ' "$exe" 90)"
+          echo "$out" | head -8
+          code="$(printf '%s\n' "$out" | sed -n 's/^SMOKE_EXIT://p' | head -1)"
+          if [ "$code" != "1" ]; then
+            echo "::error::SEA tui exited '$code' (expected 1 with interactive-terminal message)"
             exit 1
           fi
-          echo "$out" | grep -q "interactive terminal" || {
+          printf '%s\n' "$out" | grep -q "interactive terminal" || {
             echo "::error::SEA tui exited 1 but without interactive-terminal message"
             exit 1
           }
