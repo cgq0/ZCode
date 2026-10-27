@@ -133,8 +133,11 @@ jobs:
         run: |
           pkg="$(node -p "require('path').dirname(require.resolve('unsafe-pointer'))")"
           echo "unsafe-pointer package dir: $pkg"
+          # binding.gyp 的 target_name 是 node_unsafe_pointer（产物
+          # build/Release/node_unsafe_pointer.node），与 prebuilds 里的发布名不同，
+          # 拷贝时两边各用其名（run 40535391823 实测 cp 按 unsafe-pointer.node 找不到）。
           (cd "$pkg" && npx -y node-gyp@13 rebuild)
-          cp "$pkg/build/Release/unsafe-pointer.node" "$pkg/prebuilds/win32-x64/unsafe-pointer.node"
+          cp "$pkg/build/Release/node_unsafe_pointer.node" "$pkg/prebuilds/win32-x64/unsafe-pointer.node"
           echo "win32-x64 prebuild replaced with node-gyp (MSVC) build"
 
       - name: Build CLI bundle and workspace deps
