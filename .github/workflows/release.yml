@@ -111,6 +111,27 @@ jobs:
           ELECTRON_SKIP_BINARY_DOWNLOAD: ${{ matrix.desktop == true && '0' || '1' }}
         run: pnpm install --frozen-lockfile
 
+      - name: Rebuild unsafe-pointer with node-gyp (win SEA TUI fix)
+        # opentui TUI 的 FFI 闭包依赖 unsafe-pointer 0.2.0（npm prebuild 为 zig 编译）。
+        # zig 产物静态按模块名导入 NODE.EXE：SEA 进程主模块名是 zcode-cli.exe，
+        # 加载器解析导入时会把 PATH 上的 node.exe 当依赖 DLL 二次加载，addon 跨
+        # node 实例调 napi_* → TUI 启动即 0xC0000005（2026-10-27 win-x64 release
+        # 实测复现，完整根因链见 cgq0/docs/diary/2026-10-27.win.md；--version/-p/
+        # app-server 不碰 TUI 闭包故正常，build-sea 冒烟只测 --version 所以一直绿）。
+        # node-gyp/MSVC 构建走 delay-load（首次调用经 GetModuleHandle 解析进程主
+        # 模块，与主模块名无关；koffi/pty 同链路在 SEA 下实测正常）。包内自带
+        # binding.gyp 与 src/binding.c，就地重编译覆盖 win32-x64 prebuild，后续
+        # sea-tui-assets 收集与运行时 node-gyp-build 查找都命中 prebuilds 路径。
+        # 仅 win-x64：darwin/linux 的 zig prebuild 走平台动态符号解析，无此问题。
+        if: matrix.target == 'win-x64'
+        shell: bash
+        run: |
+          pkg="$(node -p "require('path').dirname(require.resolve('unsafe-pointer/package.json'))")"
+          echo "unsafe-pointer package dir: $pkg"
+          (cd "$pkg" && npx -y node-gyp@11 rebuild)
+          cp "$pkg/build/Release/unsafe-pointer.node" "$pkg/prebuilds/win32-x64/unsafe-pointer.node"
+          echo "win32-x64 prebuild replaced with node-gyp (MSVC) build"
+
       - name: Build CLI bundle and workspace deps
         # 等价于上游 build:sea 的 turbo 前半段，但用 pnpm 拓扑构建且只构建本矩阵需要的部分
         run: pnpm --filter "@zcode/cli..." build
@@ -144,6 +165,36 @@ jobs:
       - name: Build SEA binary (${{ matrix.target }})
         # build-sea 脚本自带 host 目标冒烟测试（--version），跨平台目标跳过
         run: pnpm --filter @zcode/cli sea --target ${{ matrix.target }}
+
+      - name: Smoke test SEA TUI (native chain crash guard)
+        # build-sea 自带冒烟只跑 --version，测不到 TUI 路径：TUI 的原生闭包
+        # （opentui.dll + koffi + unsafe-pointer）只在 zcode-tui-runtime 资产解包后才
+        # 加载。非 TTY 下 tui 必须优雅退出（exit 1 + "interactive terminal" 提示）；
+        # 崩溃退出码（win bash 下 139；原生 0xC0000005/0xC0000409 的无符号值
+        # 3221225477/3221226505；unix 信号段 133-139；timeout 124）都说明原生链路
+        # 在 SEA 下 broken——2026-10-27 实测：zig 版 unsafe-pointer 在 win SEA 下
+        # TUI 即崩但 CI 因只测 --version 一直绿，此步就是那条回归的护栏。
+        # macOS 无 GNU timeout（brew coreutils 提供 gtimeout），动态探测。
+        shell: bash
+        run: |
+          exe="apps/zcode-cli/packages/cli/dist/zcode-${{ matrix.target }}"
+          [ "${{ matrix.target }}" = "win-x64" ] && exe="$exe.exe" || true
+          to="$(command -v timeout || command -v gtimeout)"
+          [ -n "$to" ] || { echo "::error::no timeout tool on runner"; exit 1; }
+          set +e
+          out="$("$to" 90 "$exe" tui < /dev/null 2>&1)"; code=$?
+          set -e
+          echo "tui smoke exit=$code"
+          echo "$out" | head -5
+          if [ "$code" -ne 1 ]; then
+            echo "::error::SEA tui exited $code (expected 1 with interactive-terminal message)"
+            exit 1
+          fi
+          echo "$out" | grep -q "interactive terminal" || {
+            echo "::error::SEA tui exited 1 but without interactive-terminal message"
+            exit 1
+          }
+          echo "SEA tui smoke OK"
 
       - name: Stage zcode-webapp
         # fork 自托管 Web 产物（2026-10-25 选 B 裁决，替换原 zcode-server staged 目录）：
