@@ -143,6 +143,8 @@ export interface HttpServerOptions {
   topicResourcePeers?: TopicResourcePeers;
   serverId?: string;
   virtualProjects?: boolean;
+  /** 独立 Server 声明 false 让 UI 隐藏「不在项目中工作」入口（远程裁决不允许无项目创建）。 */
+  projectlessConversationWorkspaces?: boolean;
   migrationFailedPathCount?: number;
   workspaceIdentityMapper?: SourceServerWorkspaceIdentityMapper;
   name?: string;
@@ -195,6 +197,9 @@ function createServerInfo(options: HttpServerOptions): ServerRemoteInfo {
       desktopContinuous: true,
       websocketRpc: true,
       ...(options.virtualProjects ? { virtualProjects: true } : {}),
+      ...(options.projectlessConversationWorkspaces === undefined
+        ? {}
+        : { projectlessConversationWorkspaces: options.projectlessConversationWorkspaces }),
       processResourceTelemetry: true,
     },
   });

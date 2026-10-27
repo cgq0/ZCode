@@ -10,6 +10,10 @@ import type {
 import { projectKey } from "@/project-sidebar/view.js";
 import { ComposerSubmissionPendingContext } from "@/project-sidebar/ComposerSubmissionPendingContext.js";
 import { ProjectComposerMenu } from "@/project-sidebar/ProjectComposerMenu.js";
+import {
+  resetOriginServerCapabilitiesStoreForTests,
+  setOriginServerProjectlessConversationWorkspaces,
+} from "@/store/originServerCapabilitiesStore.js";
 import { clearV4ComposerDraft, V4_DRAFT_SCOPE_ROOT } from "@/v4/composer/composerDraftStore.js";
 
 const fixture = vi.hoisted(() => ({
@@ -142,7 +146,10 @@ beforeAll(() => {
   ])
     Object.defineProperty(HTMLElement.prototype, key, { configurable: true, value: () => false });
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  resetOriginServerCapabilitiesStoreForTests();
+});
 const project = (id: string, hostId = "local"): VirtualProject => ({
   id,
   hostId,
@@ -401,6 +408,21 @@ describe("输入框的虚拟项目目录", () => {
     fireEvent.click(screen.getByText("chat.empty.newRemoteConnection"));
     expect(p.onOpenRemoteWorkspace).toHaveBeenCalledOnce();
     expect(screen.queryByRole("menu")).toBeNull();
+  });
+  it("独立 Server 声明不支持无项目会话时隐藏「不在项目中工作」与脱离入口", () => {
+    // 缺省（桌面/bootstrap 未注入）：两个入口都在。
+    render(createElement(ProjectComposerMenu, props()));
+    expect(screen.getByTestId("composer-project-detach")).toBeTruthy();
+    open();
+    expect(screen.getByText("chat.empty.workOutsideProject")).toBeTruthy();
+    cleanup();
+    // standalone Server（web bootstrap 注入 capability=false）：入口必败，全部收起。
+    act(() => setOriginServerProjectlessConversationWorkspaces(false));
+    render(createElement(ProjectComposerMenu, props()));
+    expect(screen.queryByTestId("composer-project-detach")).toBeNull();
+    open();
+    expect(screen.queryByText("chat.empty.workOutsideProject")).toBeNull();
+    expect(screen.getByText("project.create")).toBeTruthy();
   });
   it("后台只解除原草稿提交限制，显式继续仍须选目录且失效通知不锁新草稿", async () => {
     const p = props();

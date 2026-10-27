@@ -20,6 +20,7 @@ import {
   generateMobileDeviceFingerprint,
   installDocumentHiddenMotionPause,
   playTaskNotificationSound,
+  setOriginServerProjectlessConversationWorkspaces,
   setStreamClientId,
   setWebRemoteControlTerminalTransportState,
   type Theme,
@@ -696,6 +697,10 @@ async function resolveWebBootstrap(): Promise<WebBootstrapResult> {
       return { wsUrl };
     }
     const serverInfo = (await response.json()) as Partial<ServerRemoteInfo>;
+    // Root 渲染前注入，菜单 gate 无首帧闪烁（所有权见 originServerCapabilitiesStore 注释）。
+    setOriginServerProjectlessConversationWorkspaces(
+      serverInfo.capabilities?.projectlessConversationWorkspaces !== false,
+    );
     const workspace = Array.isArray(serverInfo.workspaces) ? serverInfo.workspaces[0] : undefined;
     return {
       wsUrl,

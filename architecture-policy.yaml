@@ -909,3 +909,8 @@ exceptions:
       - apps/zcode-cli/packages/tui/src/app-background-tasks.ts
       - apps/zcode-cli/packages/tui/src/app-background-task-hint.tsx
     reason: Fork own-run feature (docs/cli-tui-activity-visibility.md) adds three leaf files in admitted upstream directories — a read-only /tasks command handler querying the existing facade listBackgroundTasks projection snapshot, a TUI hook that mirrors the same snapshot behind BackgroundTask* lifecycle events, and its one-line hint component; no new write path, and adopting apps/zcode-cli needs a separate module boundary refactor.
+  - id: origin-server-capabilities-store-unmanaged-new-file
+    rule: unmanaged-new-file
+    paths:
+      - packages/ui/src/store/originServerCapabilitiesStore.ts
+    reason: Fork self-hosted webapp fix (docs/superpowers/specs/2026-10-27-standalone-server-no-projectless-entry-design.md) adds a read-only renderer mirror of the origin server's projectlessConversationWorkspaces capability — hydrated once by the web bootstrap before Root render and read only by the ProjectComposerMenu entry gates; no IO, no service reference, and adopting packages/ui/src (AGENTS.md keeps Zustand stores in ui/src/store/) needs a separate module boundary refactor.

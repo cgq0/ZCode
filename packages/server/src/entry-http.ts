@@ -33,6 +33,10 @@ async function main(): Promise<void> {
     workspaceIdentityMapper,
     migrationFailedPathCount,
     virtualProjects: true,
+    // 独立 Server 不允许无项目会话（2026-10-10 远程裁决，spec 2026-10-27-standalone-server-
+    // no-projectless-entry-design.md）：不声明会让 UI 误判本机并渲染出必败的
+    // 「不在项目中工作」入口（cq.75 实测发送即报 project.remote-project-required）。
+    projectlessConversationWorkspaces: false,
     topicResourcePeers,
     ...(host ? { host } : {}),
     ...(staticRoot ? { staticRoot, spaFallback: true } : {}),

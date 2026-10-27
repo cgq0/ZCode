@@ -55,3 +55,30 @@ it("服务端允许已声明的资源能力但仍拒绝未知出参", () => {
     }).success,
   ).toBe(false);
 });
+
+describe.each([
+  ["客户端输入", serverRemoteInfoSchema],
+  ["服务端输出", serverRemoteInfoOutputSchema],
+] as const)("无项目会话能力协商：%s", (_side, schema) => {
+  it("字段缺席按缺省支持处理（桌面 UI 与旧 Server 兼容）", () => {
+    const parsed = schema.parse(serverInfo);
+    expect(parsed.capabilities.projectlessConversationWorkspaces).toBeUndefined();
+  });
+
+  it.each([true, false])("保留 Server 显式声明的无项目会话能力 %s", (supported) => {
+    const parsed = schema.parse({
+      ...serverInfo,
+      capabilities: { ...serverInfo.capabilities, projectlessConversationWorkspaces: supported },
+    });
+    expect(parsed.capabilities.projectlessConversationWorkspaces).toBe(supported);
+  });
+
+  it("拒绝非布尔能力值，避免把字符串 false 当成授权", () => {
+    expect(
+      schema.safeParse({
+        ...serverInfo,
+        capabilities: { ...serverInfo.capabilities, projectlessConversationWorkspaces: "false" },
+      }).success,
+    ).toBe(false);
+  });
+});

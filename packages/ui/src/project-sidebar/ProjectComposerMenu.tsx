@@ -35,6 +35,7 @@ import {
   TID_COMPOSER_WORKSPACE_TRIGGER,
 } from "@zcode/shared/test-ids";
 import { runUserAction, runUserActionAsync } from "@/lib/userActionTelemetry.js";
+import { useOriginServerCapabilitiesStore } from "@/store/originServerCapabilitiesStore.js";
 
 import type { ProjectSidebarProps, RemoteProjectHost } from "@/project-sidebar/contract.js";
 import { remoteHostIdFromWorkspaceIdentity } from "@/project-sidebar/contract.js";
@@ -254,6 +255,11 @@ export function ProjectComposerMenu({
   };
   const currentDevice = connectedDevice?.isCurrent() ? connectedDevice : null;
   const hostId = workspaceIdentity ? remoteHostIdFromWorkspaceIdentity(workspaceIdentity) : null;
+  // 独立 Server（origin capability=false）不允许无项目会话（2026-10-10 远程裁决）：
+  // 本机目录 workspace 无 identity 会误判 !hostId，必须叠加 capability 门再放行入口。
+  const projectlessConversationWorkspacesAllowed = useOriginServerCapabilitiesStore(
+    (state) => state.projectlessConversationWorkspaces,
+  );
   // 原因：目录可以属于多个项目，tab/cwd 不能决定归属；只读草稿的项目身份。
   const currentProject = projects.find(
     (project) =>
@@ -271,6 +277,7 @@ export function ProjectComposerMenu({
     !hostId &&
     allowConversationWorkspaceSelection &&
     allowConversationWorkspaceDetach &&
+    projectlessConversationWorkspacesAllowed &&
     !isConversationWorkspace;
   const visibleProjects = useMemo(() => {
     const query = workspaceSearchQuery.trim().toLowerCase();
@@ -519,7 +526,9 @@ export function ProjectComposerMenu({
                 <span>{intl.formatMessage({ id: "chat.empty.newRemoteConnection" })}</span>
               </DropdownMenuItem>
             ) : null}
-            {allowConversationWorkspaceSelection && !hostId ? (
+            {allowConversationWorkspaceSelection &&
+            !hostId &&
+            projectlessConversationWorkspacesAllowed ? (
               <DropdownMenuCheckboxItem
                 data-testid={TID_COMPOSER_WORK_OUTSIDE_PROJECT}
                 checked={isConversationWorkspace}
