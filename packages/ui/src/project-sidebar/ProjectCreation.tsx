@@ -1,6 +1,7 @@
 import { captureV4ComposerDraftHandoff } from "@/v4/composer/composerDraftWorkspaceTransfer.js";
 import { useComposerClientNamespace } from "@/hooks/useServices.js";
 import { useOptionalTabStore } from "@/store/TabStoreProvider.js";
+import { useOriginServerCapabilitiesStore } from "@/store/originServerCapabilitiesStore.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 import { useEffect, useRef, useState } from "react";
 import { useOptionalBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
@@ -142,7 +143,21 @@ export function ProjectCreation({
   };
   const saved = async (project: VirtualProject) => {
     if (!active.current) return;
-    if (project.hostId !== "local") {
+    // Bugfix：standalone Server（entry-http webapp）的存储 owner 恒为 remote:server:<id>
+    // （node.ts createServerHostServices 强制），「此电脑」创建的项目返回值携带 owner 身份
+    // 而非 "local"（d53e646b 让字面量 "local" 归一为本机路由后如此）。owner 就是 webapp 的
+    // 本机设备：该部署形态下远端目录恒为空（remote service controller=false），成员登记
+    // （addEntry）不存在，不能按「设备已移除」拒绝；导航也必须按本地 workspace 收尾，
+    // 否则 Root 会把 hostId!="local" 导去 openRemoteProjectWorkspace 远端链路。
+    // 桌面不注入 origin 身份（ownerHostId=null），行为与桌面语义完全一致。
+    // 规则与所有权见 docs/superpowers/specs/2026-10-31-standalone-server-local-project-creation.md。
+    const localHostId =
+      project.hostId === "local"
+        ? "local"
+        : project.hostId === useOriginServerCapabilitiesStore.getState().ownerHostId
+          ? "local"
+          : null;
+    if (!localHostId) {
       const host = admittedHosts.current.get(project.hostId);
       if (!host) throw new Error("remote-project.host-removed");
       await remoteService.addEntry({
@@ -173,7 +188,8 @@ export function ProjectCreation({
       });
       onCreateTask({
         projectId: project.id,
-        hostId: project.hostId,
+        // 本地（含 origin owner 折叠）项目按 "local" 导航；远端项目保持所属 Host 身份。
+        hostId: localHostId ?? project.hostId,
         taskGroupId: draft.draftTaskGroupId ?? null,
         initialComposerDraft: captureV4ComposerDraftHandoff(
           workspacePath,

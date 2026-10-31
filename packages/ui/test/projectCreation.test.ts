@@ -5,6 +5,10 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { IProjectService } from "@/project-sidebar/contract.js";
 import { ProjectCreation } from "@/project-sidebar/ProjectCreation.js";
 import { ProjectEditor } from "@/project-sidebar/ProjectEditor.js";
+import {
+  resetOriginServerCapabilitiesStoreForTests,
+  setOriginServerOwnerHostId,
+} from "@/store/originServerCapabilitiesStore.js";
 import zhCN from "@/i18n/locales/zh-CN.js";
 import enUS from "@/i18n/locales/en-US.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
@@ -116,6 +120,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  resetOriginServerCapabilitiesStoreForTests();
   state.locale = undefined;
   state.confirm.mockReset().mockResolvedValue(true);
   state.select = undefined;
@@ -829,4 +834,47 @@ it("does not consume a delayed hint when the project directory is suspended", as
   rerender(createElement(ProjectEditor, { ...props, suspended: true } as never));
   await act(async () => pending.resolve({ remoteBoundaryIntroAcknowledgedVersion: 0 }));
   expect(state.markBoundary).not.toHaveBeenCalled();
+});
+
+it("treats a standalone origin owner project as local and finishes creation without remote admission", async () => {
+  // 回归：standalone Server（entry-http webapp）存储 owner 恒为 remote:server:<id>，
+  // 「此电脑」建项目返回值携带 owner 身份而非 "local"；此前 saved() 找不到已登记 host
+  // 直接抛 remote-project.host-removed（报「此设备已从项目列表移除」），项目虽已创建
+  // 但弹窗不关、草稿不导航。owner 由 bootstrap 从 server-info serverId 派生注入。
+  state.hasManagement = false;
+  setOriginServerOwnerHostId("origin");
+  const { props, service, remoteService } = await setup();
+  service.saveProject.mockImplementation(async () => ({
+    id: "project",
+    hostId: "remote:server:origin",
+    name: "Draft",
+    roots: [],
+  }));
+  fireEvent.change(screen.getByTestId("virtual-project-name"), { target: { value: "Draft" } });
+  fireEvent.click(screen.getByTestId("virtual-project-save"));
+  await waitFor(() => expect(props.onClose).toHaveBeenCalled());
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(remoteService.addEntry).not.toHaveBeenCalled();
+  expect(props.onCreateTask).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ projectId: "project", hostId: "local" }),
+  );
+});
+
+it("still rejects a created project whose host was never admitted when origin owner is unknown", async () => {
+  // 桌面守卫不回退：owner 未注入（缺省 null）时，返回未登记 hostId 仍按设备已移除拒绝。
+  state.hasManagement = false;
+  const { props, service } = await setup();
+  service.saveProject.mockImplementation(async () => ({
+    id: "project",
+    hostId: "remote:server:unknown",
+    name: "Draft",
+    roots: [],
+  }));
+  fireEvent.change(screen.getByTestId("virtual-project-name"), { target: { value: "Draft" } });
+  fireEvent.click(screen.getByTestId("virtual-project-save"));
+  await waitFor(() =>
+    expect(screen.getByRole("alert").textContent).toContain("project.hostRemoved"),
+  );
+  expect(props.onClose).not.toHaveBeenCalled();
+  expect(props.onCreateTask).not.toHaveBeenCalled();
 });

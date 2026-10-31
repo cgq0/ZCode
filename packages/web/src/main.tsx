@@ -20,6 +20,7 @@ import {
   generateMobileDeviceFingerprint,
   installDocumentHiddenMotionPause,
   playTaskNotificationSound,
+  setOriginServerOwnerHostId,
   setOriginServerProjectlessConversationWorkspaces,
   setStreamClientId,
   setWebRemoteControlTerminalTransportState,
@@ -701,6 +702,11 @@ async function resolveWebBootstrap(): Promise<WebBootstrapResult> {
     setOriginServerProjectlessConversationWorkspaces(
       serverInfo.capabilities?.projectlessConversationWorkspaces !== false,
     );
+    // 注入 origin 存储 owner 身份（remote:server:<serverId>，store 内派生）：「此电脑」
+    // 建项目的返回值携带 owner 身份，ProjectCreation.saved 需要它按本地项目收尾
+    // （spec 2026-10-31-standalone-server-local-project-creation.md）。旧 Server 缺
+    // serverId 时保持 null，消费方按未知 origin 处理。
+    setOriginServerOwnerHostId(serverInfo.serverId);
     const workspace = Array.isArray(serverInfo.workspaces) ? serverInfo.workspaces[0] : undefined;
     return {
       wsUrl,
