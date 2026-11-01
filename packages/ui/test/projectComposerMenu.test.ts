@@ -45,6 +45,23 @@ vi.mock("@/project-sidebar/ProjectDirectoryProvider.js", () => ({
     },
     refresh: fixture.refresh,
   }),
+  // 上游 a60ba6a7 重构后 ProjectComposerMenu 改读 useProjectSelectionDirectory
+  // （projectSelection 形状见 ProjectDirectoryProvider.tsx 的 useMemo），字段从同一
+  // fixture 派生，保持与原 useProjectDirectory mock 等价的数据语义。
+  useProjectSelectionDirectory: () => ({
+    projects: fixture.projects,
+    allProjects: fixture.projects,
+    availability: fixture.availability,
+    directory: { hosts: fixture.hosts },
+    deviceNames: fixture.deviceNames,
+    error: fixture.error,
+    service: { readDirectory: fixture.readDirectory, readTree: fixture.readTree },
+    remoteService: {
+      readDirectory: async () => ({ hosts: fixture.hosts }),
+      addEntry: fixture.addEntry,
+    },
+    refresh: fixture.refresh,
+  }),
 }));
 vi.mock("@/store/zcodeSessionStore.js", () => {
   const getWorkspaceState = () => ({
