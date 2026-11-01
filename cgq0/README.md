@@ -93,3 +93,5 @@ fork 级"为什么这么做"的决策，新的加在最下面：
 | 2026-10-20 | 临时文件收进 `cgq0/tmp/` 而非 `/tmp/` | `/tmp` 在项目 cwd 之外，pi 的权限管理系统逐次拦截项目外路径；gitignored 的仓内目录同样即用即弃，但权限零摩擦 |
 | 2026-10-23 | 内存泄露观察项退出 TODO，转事件驱动取证：脚本收进 `scripts/`、用法进本 README、触发时跑脚本再开新会话分析 | 泄露不可复现、挂 TODO 只会空转；把「下次遇到怎么办」沉淀成脚本+文档，比一行待办可执行 |
 | 2026-11-01 | 上游同步固定为手动（规则化进 AGENTS.md），sync-upstream workflow 保持禁用，不恢复调度 | 10-25 实证 GitHub 会静默禁用/排队取消公开 fork 的 Actions，用户明确"开了也会关"；本地 merge 成本可控（merge-tree 预分析 15 冲突全部有预案），cq 锚点靠 merge 消息自动识别 |
+| 2026-11-01 | win-x64 停止打包、zcode-serve.ps1 不再入包 | 用户裁决：Windows 本地运行问题不再投入（不用也不维护）；平台矩阵收敛为 linux-x64 + darwin×2，stage-webapp 的 win32 staging 能力保留以便万一恢复 |
+| 2026-11-01 | Electron 固定 41.2.0 pin，上游 44.7.0 升级无限期挂起 | 上游新代码用 44 专属 API（ClipboardItem），保 41 需fork 侧适配（host.ts 剪贴板已适配）；升级要过 mac occlusion 修补回归 + 打包冒烟，收益不抵风险 |
