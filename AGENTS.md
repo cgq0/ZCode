@@ -88,3 +88,5 @@ App 业务单测已退役，不新增或恢复 App 业务单测 test/spec 或 `c
 
 - `cgq0/` 是本 fork 维护者的专属目录（章程、日记、TODOs、脚本），上游代码不引用它；合并上游时不得把 `cgq0/` 的内容混入上游文件树，文档读写规矩见 `cgq0/README.md`。
 - 本 fork 的 commit 一律通过 `cgq0/scripts/ai-commit.sh` 提交（自动附加 `X-AI` 模型@harness/版本 trailer，merge commit 除外），不要直接裸跑 `git commit`。
+- 上游同步固定为手动（本地 `git fetch upstream && git merge upstream/main`）：sync-upstream workflow 保持禁用，不要建议或尝试恢复每日调度或 workflow_dispatch——用户不会维持 fork 的 GitHub Actions 自动化（开了也会关）。合并前用 `git merge-tree` 做无副作用试合并评估冲突面。
+- 上游已退役 App 业务单测并收口到 `scripts/engineering-test-files.json`，本 fork 有意保留 7 个注册在案的回归测试（见清单与 2026-11-01 日记）：维护它们不违反上文"不恢复业务单测"；保留/退役一个测试要三处同步——包依赖、工程测试清单、coverage matrix 的 retired 标注，漏任何一处会被 pre-push 检查拦下。

@@ -92,3 +92,4 @@ fork 级"为什么这么做"的决策，新的加在最下面：
 | 2026-10-20 | commit 署名用包装器脚本而非 git hooks | 上游 husky 独占 `core.hooksPath` 且每次 `pnpm install` 重置；往 `.husky/` 加钩子文件会污染上游文件树。包装器纯 `cgq0/` 内，merge 无感，代价是纪律（所有 commit 走脚本） |
 | 2026-10-20 | 临时文件收进 `cgq0/tmp/` 而非 `/tmp/` | `/tmp` 在项目 cwd 之外，pi 的权限管理系统逐次拦截项目外路径；gitignored 的仓内目录同样即用即弃，但权限零摩擦 |
 | 2026-10-23 | 内存泄露观察项退出 TODO，转事件驱动取证：脚本收进 `scripts/`、用法进本 README、触发时跑脚本再开新会话分析 | 泄露不可复现、挂 TODO 只会空转；把「下次遇到怎么办」沉淀成脚本+文档，比一行待办可执行 |
+| 2026-11-01 | 上游同步固定为手动（规则化进 AGENTS.md），sync-upstream workflow 保持禁用，不恢复调度 | 10-25 实证 GitHub 会静默禁用/排队取消公开 fork 的 Actions，用户明确"开了也会关"；本地 merge 成本可控（merge-tree 预分析 15 冲突全部有预案），cq 锚点靠 merge 消息自动识别 |
