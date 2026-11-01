@@ -4,7 +4,6 @@ import type { PluginSandboxHandle, PluginSandboxRegisterInput } from "@zcode/sha
 import {
   BrowserWindow,
   clipboard,
-  nativeImage,
   MessageChannelMain,
   app,
   dialog,
@@ -338,11 +337,10 @@ export function installPluginSandboxHost(input: {
     // 截图期间页面可能释放或换代；旧请求不得把错误页面的图像写入剪贴板。
     if (!isCurrent()) throw new Error("Sandbox capture is no longer available");
     const cropped = captured.crop(scaleCaptureRect(request, captured.getSize()));
-    clipboard.writeImage(
-      process.platform === "win32"
-        ? nativeImage.createFromBitmap(cropped.toBitmap(), cropped.getSize())
-        : cropped,
-    );
+    // fork 停留在 Electron 41.2.0（packages/desktop/package.json）：上游为 44 写的
+    // clipboard.write([ClipboardItem]) 在 41 没有 ClipboardItem 导出；41 仍保留同步
+    // writeImage（44 才移除），PNG 编码由 writeImage 内部完成，复制语义等价。
+    clipboard.writeImage(cropped);
   });
   ipcMain.handle(
     PlatformChannels.PluginSandboxDispose,

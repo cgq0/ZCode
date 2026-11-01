@@ -45,6 +45,7 @@ export const serverRemoteInfoSchema = z.object({
     // standalone Server 声明 false 关掉「不在项目中工作」入口（远程裁决不允许无项目创建）；
     // 缺省 = 支持：桌面 UI 不经此合同，不能因字段缺席收走既有入口。
     projectlessConversationWorkspaces: z.boolean().optional(),
+    remoteConversationTelemetry: z.boolean().optional(),
   }),
 });
 
@@ -70,6 +71,7 @@ export const serverRemoteInfoOutputSchema = z
         processResourceTelemetry: z.boolean().optional(),
         // 与 wire schema 同一能力合同；strict 输出不能漏字段。
         projectlessConversationWorkspaces: z.boolean().optional(),
+        remoteConversationTelemetry: z.boolean().optional(),
       })
       .strict(),
   })
