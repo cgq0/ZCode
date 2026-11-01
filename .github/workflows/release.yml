@@ -133,7 +133,9 @@ jobs:
         # SEA 资产收集与 server stage 的 requiresRuntime 插件都断言 dist/mcp/server.js
         # （browser-use 复用 node-repl-host 的 server）。插件 dist 被 gitignore，干净 CI
         # 必须显式构建。清单对齐上游 build-desktop-agent-cli.mjs 的
-        # requiredDevPluginRuntimeBuilds，上游新增 requiresRuntime 插件时需同步此处。
+        # requiredDevPluginRuntimeBuilds，上游新增 requiresRuntime 插件时需同步此处
+        # （2026-11-01 实测：漏同步 a60ba6a7 新增的 zcode-site-plugin 让 SEA 构建步
+        # 直接失败，报 Missing zcode-site runtime asset）。
         shell: bash
         run: |
           for pkg in \
@@ -145,6 +147,7 @@ jobs:
             @zcode/pdf-plugin \
             @zcode/presentations-plugin \
             @zcode/spreadsheets-plugin \
+            @zcode/zcode-site-plugin \
           ; do
             pnpm --filter "$pkg" build
           done
