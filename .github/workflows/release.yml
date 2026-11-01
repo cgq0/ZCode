@@ -6,13 +6,15 @@
 # 新文件不产生合并冲突；上游代码不依赖本文件。
 #
 # 发版形态（2026-10-24 裁决，见 cgq0/docs/diary/2026-10-24.mac.md；
-# 2026-10-25 选 B 裁决：zcode-server staged 目录换为 zcode-webapp 自托管 Web 产物）：
+# 2026-10-25 选 B 裁决：zcode-server staged 目录换为 zcode-webapp 自托管 Web 产物；
+# 2026-11-01 裁决：win-x64 停止打包、zcode-serve.ps1 不再入包——Windows 本地运行
+# 问题不再投入，见 cgq0/docs/diary/2026-11-01.lin.md）：
 #   - 每平台一条 zip：zcode-v<版本>-cq.<n>.g<sha>-<target>.zip，包内文件名不带版本：
-#     zcode-cli（win: zcode-cli.exe）、zcode-serve(+.ps1) 与 zcode-webapp/（自包含
-#     Web 服务：server bundle + 前端 + agent + 随包 Node），darwin-x64 额外含
+#     zcode-cli、zcode-serve 与 zcode-webapp/（自包含 Web 服务：server bundle + 前端
+#     + agent + 随包 Node），darwin-x64 额外含
 #     ZCode.fork.app（桌面只打 x86 mac，省 runner 配额；产品名/图标为 fork 专属
 #     蓝底，与官方 ZCode.app 可同装互不覆盖）。
-#   - 三产物版本统一为 monorepo 根版本 3.16.2 + `+cq.<n>.g<sha>`：cli 由 build.mjs
+#   - 三产物版本统一为 monorepo 根版本 3.17.1 + `+cq.<n>.g<sha>`：cli 由 build.mjs
 #     注入（base 从根 package.json 读取）；desktop 由 build-metadata.mjs 写入
 #     build-meta.json（About 展示）；server stage 本就读根版本。Release tag、zip
 #     文件名、二进制 --version、桌面 About 四处身份一致。
@@ -37,7 +39,10 @@
 #   注意：不要用上游的 build:sea 脚本——它末尾固定 `node scripts/build-sea.mjs --all`，
 #   会在每个 runner 上重复构建全部 6 个目标（还包含大量跨平台无意义工作）。
 #
-# 平台矩阵：linux-x64 / win-x64 / darwin-x64（+desktop）/ darwin-arm64。
+# 平台矩阵：linux-x64 / darwin-x64（+desktop）/ darwin-arm64。
+# win-x64 已于 2026-11-01 停打（用户裁决：Windows 本地运行问题不再投入）；
+# stage-webapp.mjs 的 win32 分支与 unsafe-pointer 的 win 知识保留在仓库里，
+# 万一恢复打包可参考日记 cgq0/docs/diary/2026-10-27.win.md 与 2026-11-01.lin.md。
 # darwin 目标必须在 macOS runner 上构建（SEA 注入后需 codesign 临时签名）。
 # 2026-10-27 实测：macos-latest 排队 15 分钟未分配 runner 直接 cancelled
 # （win/linux 正常），偶发时段性；若持续复现需错峰重跑或审视账号 macOS 并发额度。
@@ -69,7 +74,6 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-latest, target: linux-x64 }
-          - { os: windows-latest, target: win-x64 }
           # 桌面只打 x86 mac（2026-10-24 裁决）；arm64 runner 上交叉构建 x64
           - { os: macos-latest, target: darwin-x64, desktop: true }
           - { os: macos-latest, target: darwin-arm64 }
@@ -107,40 +111,13 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        env:
-          # Electron 二进制只有 desktop leg 需要（经 electron-builder 按 electronVersion
-          # 41.2.0 自行下载）；cli/server leg 完全用不到，跳过下载省时间带宽。
-          ELECTRON_SKIP_BINARY_DOWNLOAD: ${{ matrix.desktop == true && '0' || '1' }}
+        # 注意不要设 ELECTRON_SKIP_BINARY_DOWNLOAD（连 "0" 都不行）：electron 的
+        # install.js 用真值判断，变量存在即跳过下载；而上游 a60ba6a7 起 desktop 的
+        # postinstall（node-pty-rebuild → ensureElectronRuntime）无条件要求二进制
+        # 就位，ensure 调起的 install.js 也会被同一变量再次挡住——四平台安装期必
+        # 然抛 "Electron binary unavailable"（run 41258963598 全挂根因，干净树+
+        # 全新 store 复现确认）。每个 leg 多 ~1min 下载换安装确定性。
         run: pnpm install --frozen-lockfile
-
-      - name: Rebuild unsafe-pointer with node-gyp (win SEA TUI fix)
-        # opentui TUI 的 FFI 闭包依赖 unsafe-pointer 0.2.0（npm prebuild 为 zig 编译）。
-        # zig 产物静态按模块名导入 NODE.EXE：SEA 进程主模块名是 zcode-cli.exe，
-        # 加载器解析导入时会把 PATH 上的 node.exe 当依赖 DLL 二次加载，addon 跨
-        # node 实例调 napi_* → TUI 启动即 0xC0000005（2026-10-27 win-x64 release
-        # 实测复现，完整根因链见 cgq0/docs/diary/2026-10-27.win.md；--version/-p/
-        # app-server 不碰 TUI 闭包故正常，build-sea 冒烟只测 --version 所以一直绿）。
-        # node-gyp/MSVC 构建走 delay-load（首次调用经 GetModuleHandle 解析进程主
-        # 模块，与主模块名无关；koffi/pty 同链路在 SEA 下实测正常）。包内自带
-        # binding.gyp 与 src/binding.c，就地重编译覆盖 win32-x64 prebuild，后续
-        # sea-tui-assets 收集与运行时 node-gyp-build 查找都命中 prebuilds 路径。
-        # 仅 win-x64：darwin/linux 的 zig prebuild 走平台动态符号解析，无此问题。
-        # node-gyp 必须 >=12.1（VS 2026/18.x 识别，13.0.1 修版本解析）：runner 已升级
-        # VS 18 Enterprise，11.x 报 unknown version 直接 find VS 失败（2026-10-27
-        # run 40532699443 实测；pnpm install 里 cpu-features 的 node-gyp@11 同样失败，
-        # 只是 optional 不阻塞）。包根解析用 require.resolve('unsafe-pointer')：
-        # 该包 exports 未暴露 ./package.json 子路径（首跑 ERR_PACKAGE_PATH_NOT_EXPORTED）。
-        if: matrix.target == 'win-x64'
-        shell: bash
-        run: |
-          pkg="$(node -p "require('path').dirname(require.resolve('unsafe-pointer'))")"
-          echo "unsafe-pointer package dir: $pkg"
-          # binding.gyp 的 target_name 是 node_unsafe_pointer（产物
-          # build/Release/node_unsafe_pointer.node），与 prebuilds 里的发布名不同，
-          # 拷贝时两边各用其名（run 40535391823 实测 cp 按 unsafe-pointer.node 找不到）。
-          (cd "$pkg" && npx -y node-gyp@13 rebuild)
-          cp "$pkg/build/Release/node_unsafe_pointer.node" "$pkg/prebuilds/win32-x64/unsafe-pointer.node"
-          echo "win32-x64 prebuild replaced with node-gyp (MSVC) build"
 
       - name: Build CLI bundle and workspace deps
         # 等价于上游 build:sea 的 turbo 前半段，但用 pnpm 拓扑构建且只构建本矩阵需要的部分
@@ -187,11 +164,9 @@ jobs:
         # macOS 无 GNU timeout（brew coreutils 提供 gtimeout），动态探测。
         shell: bash
         run: |
-          # 产物名映射与 Package 步骤一致（win-x64 → zcode-windows-x64.exe，其余
-          # target 与产物同名；按 ${{ matrix.target }} 直接拼接会拼出
-          # zcode-win-x64.exe 找不到文件——run 40536478016 实测 exit 127）。
+          # 产物名映射与 Package 步骤一致（target 与产物同名；按 ${{ matrix.target }}
+          # 直接拼接会拼错名找不到文件——run 40536478016 实测 exit 127）。
           case "${{ matrix.target }}" in
-            win-x64)      exe="apps/zcode-cli/packages/cli/dist/zcode-windows-x64.exe" ;;
             linux-x64)    exe="apps/zcode-cli/packages/cli/dist/zcode-linux-x64" ;;
             darwin-x64)   exe="apps/zcode-cli/packages/cli/dist/zcode-darwin-x64" ;;
             darwin-arm64) exe="apps/zcode-cli/packages/cli/dist/zcode-darwin-arm64" ;;
@@ -237,17 +212,14 @@ jobs:
       - name: Stage zcode-webapp
         # fork 自托管 Web 产物（2026-10-25 选 B 裁决，替换原 zcode-server staged 目录）：
         # entry-http 自包含 bundle + web 静态 + agent zcode.cjs + node-pty 原生模块 +
-        # 随包 Node（复用 server-cli 的缓存/镜像链）。zip 内与 zcode-serve(.ps1) 同级。
-        # win-x64 → win32-x64 映射沿用原 SERVER_TARGET 约定。
-        # 必须 shell: bash：多行命令用 bash 的 \ 续行，windows runner 默认 PowerShell
-        # 不认续行符，--target 会被当新语句报 ParserError（解析期失败，整步不执行，
-        # 2026-10-27 实测踩坑；af93ce63 引入该步骤后首次上 CI 才暴露）。
+        # 随包 Node（复用 server-cli 的缓存/镜像链）。zip 内与 zcode-serve 同级。
+        # shell: bash 保留：多行命令依赖 bash 的 \ 续行（win leg 已移除，此护栏防回归）。
         shell: bash
         run: |
           pnpm --filter @zcode/server build
           pnpm --filter @zcode/web build
           node cgq0/scripts/stage-webapp.mjs \
-            --target ${{ matrix.target == 'win-x64' && 'win32-x64' || matrix.target }} \
+            --target ${{ matrix.target }} \
             --out webapp-pkg/zcode-webapp
 
       - name: Build desktop app (darwin-x64)
@@ -276,7 +248,6 @@ jobs:
         run: |
           version="$(node -p "require('./package.json').version")"
           case "$TARGET" in
-            win-x64)      cli_src="zcode-windows-x64.exe"; inner="zcode-cli.exe" ;;
             linux-x64)    cli_src="zcode-linux-x64";       inner="zcode-cli" ;;
             darwin-x64)   cli_src="zcode-darwin-x64";      inner="zcode-cli" ;;
             darwin-arm64) cli_src="zcode-darwin-arm64";    inner="zcode-cli" ;;
@@ -286,12 +257,11 @@ jobs:
           rm -rf release-pkg && mkdir -p release-pkg
           cp "apps/zcode-cli/packages/cli/dist/$cli_src" "release-pkg/$inner"
           # cp 会丢执行位（umask 归一），unix 内核要它才能直接跑
-          [ "$RUNNER_OS" = "Windows" ] || chmod 755 "release-pkg/$inner"
-          # 自托管 Web 产物与两个启动器（sh/ps1 全平台都带，互不干扰）
+          chmod 755 "release-pkg/$inner"
+          # 自托管 Web 产物与启动器（2026-11-01 裁决：ps1 不再入包，win 打包已停）
           cp -R "webapp-pkg/zcode-webapp" "release-pkg/zcode-webapp"
           cp cgq0/webapp/zcode-serve "release-pkg/zcode-serve"
-          cp cgq0/webapp/zcode-serve.ps1 "release-pkg/zcode-serve.ps1"
-          [ "$RUNNER_OS" = "Windows" ] || chmod 755 "release-pkg/zcode-serve"
+          chmod 755 "release-pkg/zcode-serve"
           if [ "${{ matrix.desktop }}" = "true" ]; then
             app_path="$(ls -d packages/desktop/dist/mac/*.app 2>/dev/null | head -1 || true)"
             [ -n "$app_path" ] || { echo "desktop .app not found in packages/desktop/dist/mac" >&2; exit 1; }
@@ -303,11 +273,11 @@ jobs:
           # 硬编码名字会在改名后静默把 desktop 漏出 zip（2026-10-25 实测踩坑）；
           # zip 的 -y 必须加：.app 框架内有符号链接，默认解引用会复制出双份内容并破坏 app 结构
           (cd release-pkg && app_bundle="$(ls -d -- *.app 2>/dev/null | head -1 || true)" && if command -v zip > /dev/null 2>&1; then
-            entries=("$inner" "zcode-webapp" "zcode-serve" "zcode-serve.ps1")
+            entries=("$inner" "zcode-webapp" "zcode-serve")
             if [ -n "$app_bundle" ]; then entries+=("$app_bundle"); fi
             zip -qry "../$zipname" "${entries[@]}"
           else
-            args=(a -tzip -bso0 "../$zipname" "$inner" "zcode-webapp" "zcode-serve" "zcode-serve.ps1")
+            args=(a -tzip -bso0 "../$zipname" "$inner" "zcode-webapp" "zcode-serve")
             if [ -n "$app_bundle" ]; then args+=("$app_bundle"); fi
             7z "${args[@]}"
           fi)
@@ -418,13 +388,12 @@ jobs:
           | zcode-v*-darwin-x64.zip | macOS（Intel） | zcode-cli + zcode-serve + zcode-webapp + ZCode.fork.app |
           | zcode-v*-darwin-arm64.zip | macOS（Apple Silicon） | zcode-cli + zcode-serve + zcode-webapp |
           | zcode-v*-linux-x64.zip | Linux x64 | zcode-cli + zcode-serve + zcode-webapp |
-          | zcode-v*-windows-x64.zip | Windows x64 | zcode-cli.exe + zcode-serve(.ps1) + zcode-webapp |
 
-          **zcode-cli**（Node SEA 单文件）：解压得固定名 `zcode-cli`（Windows 为
-          `zcode-cli.exe`），改名 `zcode` 放入 PATH（如 `~/.local/bin`），`chmod +x` 即用。
+          **zcode-cli**（Node SEA 单文件）：解压得固定名 `zcode-cli`，改名 `zcode`
+          放入 PATH（如 `~/.local/bin`），`chmod +x` 即用。
 
           **zcode-serve + zcode-webapp**（自托管 Web 版，全平台）：解压后把目录加进
-          PATH，`zcode-serve start`（Windows：`.\zcode-serve.ps1 start`）即起完整
+          PATH，`zcode-serve start` 即起完整
           Web 端（默认 127.0.0.1:3030，自带 Node 与 agent 运行时，无需系统依赖）。
           远程访问推荐 SSH 隧道：`ssh -N -L 3030:127.0.0.1:3030 user@host`，本地
           浏览器开 http://localhost:3030。`zcode-serve stop|status` 管理生命周期，
@@ -443,7 +412,6 @@ jobs:
 
           macOS 首次运行被 Gatekeeper 拦截时清除隔离标记（-r 递归，对 .app 目录必须加）：
           `xattr -rd com.apple.quarantine ./zcode-cli`；ZCode.fork.app 同法指向 .app 路径。
-          Windows SmartScreen 警告：二进制未做 Authenticode 签名，选「更多信息 → 仍要运行」。
           校验和见各 SHA256SUMS-<target>.txt（对象为对应 zip）。
           NOTES
           # 非官方构建声明置顶：明确产物来源与构建 commit（商标合规：nominative use）
