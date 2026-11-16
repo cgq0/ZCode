@@ -95,3 +95,4 @@ fork 级"为什么这么做"的决策，新的加在最下面：
 | 2026-11-01 | 上游同步固定为手动（规则化进 AGENTS.md），sync-upstream workflow 保持禁用，不恢复调度 | 10-25 实证 GitHub 会静默禁用/排队取消公开 fork 的 Actions，用户明确"开了也会关"；本地 merge 成本可控（merge-tree 预分析 15 冲突全部有预案），cq 锚点靠 merge 消息自动识别 |
 | 2026-11-01 | win-x64 停止打包、zcode-serve.ps1 不再入包 | 用户裁决：Windows 本地运行问题不再投入（不用也不维护）；平台矩阵收敛为 linux-x64 + darwin×2，stage-webapp 的 win32 staging 能力保留以便万一恢复 |
 | 2026-11-01 | Electron 固定 41.2.0 pin，上游 44.7.0 升级无限期挂起 | 上游新代码用 44 专属 API（ClipboardItem），保 41 需fork 侧适配（host.ts 剪贴板已适配）；升级要过 mac occlusion 修补回归 + 打包冒烟，收益不抵风险 |
+| 2026-11-16 | release 打包收敛为 zcode-cli + ZCode.fork.app 两产物，zcode-serve + zcode-webapp 线整体下线（含 stage-webapp.mjs、serve-web.mjs、zcode-serve 启动器与 .gitignore 条目） | 用户裁决：自托管 Web 使用概率太低；省每平台 server+web 构建时间与分发体积（win leg 2026-11-01 已先行停打，上条「win32 staging 保留」随之失效）。源码级 self-host 能力保留，需要时可从源码构建；脚本可从 git 历史取回 |
