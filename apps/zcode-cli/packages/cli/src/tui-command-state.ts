@@ -7,6 +7,7 @@ import type {
   TuiReplayWorkflowRuns,
   TuiModelOption,
   TuiRecallPreviousInput,
+  TuiRegisterPermissionRequester,
   TuiSendInput,
   TuiSetMode,
   TuiSessionMetadata,
@@ -27,6 +28,7 @@ export type TuiPromptHandler = TuiSubmitPrompt & {
   listWorkflowRuns?: TuiListWorkflowRuns;
   replayWorkflowRuns?: TuiReplayWorkflowRuns;
   getMainSessionId?: TuiGetMainSessionId;
+  registerPermissionRequester?: TuiRegisterPermissionRequester;
   listModelOptions?: () => Promise<readonly TuiModelOption[]>;
   recallPreviousInput?: TuiRecallPreviousInput;
   sendInput?: TuiSendInput;

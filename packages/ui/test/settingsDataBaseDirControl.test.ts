@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const capturedButtons: Array<Record<string, unknown>> = [];
 const capturedInputs: Array<Record<string, unknown>> = [];
 const capturedSwitches: Array<Record<string, unknown>> = [];
+const capturedSelects: Array<Record<string, unknown>> = [];
 
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof import("react")>("react");
@@ -40,7 +41,10 @@ vi.mock("@/components/ui/switch.js", () => ({
 }));
 
 vi.mock("@/components/ui/select.js", () => ({
-  Select: ({ children }: { children: unknown }) => createElement("div", null, children),
+  Select: (props: Record<string, unknown>) => {
+    capturedSelects.push(props);
+    return createElement("div", null, props.children);
+  },
   SelectContent: ({ children }: { children: unknown }) => createElement("div", null, children),
   SelectItem: ({ children }: { children: unknown }) => createElement("div", null, children),
   SelectTrigger: ({ children }: { children: unknown }) => createElement("button", null, children),
@@ -95,6 +99,11 @@ vi.mock("@/i18n/IntlProvider.js", () => ({
           "settings.nativeSearchEnhancements": "增强 Find 和 Grep",
           "settings.nativeSearchEnhancementsDescription": "desc",
           "settings.toolSearchExperimentalNotice": "desc",
+          "settings.toolSearch": "工具搜索",
+          "settings.toolSearchDescription": "desc",
+          "settings.toolSearch.auto": "自动",
+          "settings.toolSearch.local": "本地",
+          "settings.toolSearch.off": "关闭",
           "settings.memory": "记忆",
           "settings.memory.workspaceMemory": "工作区记忆",
           "settings.memoryDescription": "desc",
@@ -213,11 +222,38 @@ async function renderGeneralSection(
   );
 }
 
+// 上游 v3.18.0 把交互/搜索/流式开关从 GeneralSectionContent 拆到 AgentBehaviorSectionContent，
+// fork 保留测试跟随新归属渲染（原 GeneralSection 传参里这些开关已不再渲染）。
+async function renderAgentBehaviorSection(
+  overrides: Partial<
+    Parameters<typeof import("../src/settingsPageHelpers.js").AgentBehaviorSectionContent>[0]
+  > = {},
+) {
+  const { AgentBehaviorSectionContent } = await import("../src/settingsPageHelpers.js");
+
+  return renderToStaticMarkup(
+    createElement(AgentBehaviorSectionContent, {
+      toolSearchMode: "auto",
+      nativeSearchEnhancementsEnabled: true,
+      messageStreamShowReasoning: true,
+      messageStreamShowTodos: false,
+      zcodeInteractionBehavior: "queue",
+      onToolSearchModeChange: vi.fn(async () => {}),
+      onNativeSearchEnhancementsEnabledChange: vi.fn(async () => {}),
+      onMessageStreamShowReasoningChange: vi.fn(async () => {}),
+      onMessageStreamShowTodosChange: vi.fn(async () => {}),
+      onZCodeInteractionBehaviorChange: vi.fn(async () => {}),
+      ...overrides,
+    }),
+  );
+}
+
 describe("GeneralSectionContent data directory control", () => {
   beforeEach(() => {
     capturedButtons.length = 0;
     capturedInputs.length = 0;
     capturedSwitches.length = 0;
+    capturedSelects.length = 0;
   });
 
   afterEach(() => {
@@ -233,7 +269,10 @@ describe("GeneralSectionContent data directory control", () => {
   it("ModelIO 读取关闭值并通过标准设置开关提交", async () => {
     const onModelIoFullRetentionEnabledChange = vi.fn(async () => {});
 
-    await renderGeneralSection({ onModelIoFullRetentionEnabledChange });
+    await renderAgentBehaviorSection({
+      modelIoFullRetentionEnabled: false,
+      onModelIoFullRetentionEnabledChange,
+    });
 
     const modelIoSwitch = capturedSwitches.find(
       (entry) => entry["aria-label"] === "完整保留模型 I/O",
@@ -275,7 +314,7 @@ describe("GeneralSectionContent data directory control", () => {
   it("增强搜索读取持久值并写回用户切换", async () => {
     const onNativeSearchEnhancementsEnabledChange = vi.fn(async () => {});
 
-    await renderGeneralSection({
+    await renderAgentBehaviorSection({
       nativeSearchEnhancementsEnabled: false,
       onNativeSearchEnhancementsEnabledChange,
     });
@@ -314,7 +353,7 @@ describe("GeneralSectionContent data directory control", () => {
     const onMessageStreamShowReasoningChange = vi.fn(async () => {});
     const onMessageStreamShowTodosChange = vi.fn(async () => {});
 
-    await renderGeneralSection({
+    await renderAgentBehaviorSection({
       onMessageStreamShowReasoningChange,
       onMessageStreamShowTodosChange,
     });
@@ -332,38 +371,26 @@ describe("GeneralSectionContent data directory control", () => {
     expect(onMessageStreamShowTodosChange).toHaveBeenCalledWith(true);
   });
 
-  it("工具分组开关读取持久值，并把用户操作写回设置回调", async () => {
-    const onToolGroupingExploreEnabledChange = vi.fn(async () => {});
-    const onToolGroupingTerminalEnabledChange = vi.fn(async () => {});
-    const onToolGroupingChangesEnabledChange = vi.fn(async () => {});
+  it("工具搜索模式下拉读取持久值，并把用户操作写回设置回调", async () => {
+    // 上游 v3.18.0 移除工具分组三开关，改为 toolSearch 单选下拉（auto/local/off）。
+    const onToolSearchModeChange = vi.fn(async () => {});
 
-    await renderGeneralSection({
-      onToolGroupingExploreEnabledChange,
-      onToolGroupingTerminalEnabledChange,
-      onToolGroupingChangesEnabledChange,
+    await renderAgentBehaviorSection({
+      toolSearchMode: "local",
+      onToolSearchModeChange,
     });
 
-    const exploreSwitch = capturedSwitches.find((item) => item["aria-label"] === "分组探索工具");
-    const terminalSwitch = capturedSwitches.find((item) => item["aria-label"] === "分组终端命令");
-    const changesSwitch = capturedSwitches.find((item) => item["aria-label"] === "分组文件更改");
+    const toolSearchSelect = capturedSelects.find((item) => item.value === "local");
+    expect(toolSearchSelect?.onValueChange).toBeTypeOf("function");
+    (toolSearchSelect?.onValueChange as ((value: string) => void) | undefined)?.("off");
 
-    expect(exploreSwitch?.checked).toBe(true);
-    expect(terminalSwitch?.checked).toBe(true);
-    expect(changesSwitch?.checked).toBe(false);
-
-    (exploreSwitch?.onCheckedChange as ((checked: boolean) => void) | undefined)?.(false);
-    (terminalSwitch?.onCheckedChange as ((checked: boolean) => void) | undefined)?.(false);
-    (changesSwitch?.onCheckedChange as ((checked: boolean) => void) | undefined)?.(true);
-
-    expect(onToolGroupingExploreEnabledChange).toHaveBeenCalledWith(false);
-    expect(onToolGroupingTerminalEnabledChange).toHaveBeenCalledWith(false);
-    expect(onToolGroupingChangesEnabledChange).toHaveBeenCalledWith(true);
+    expect(onToolSearchModeChange).toHaveBeenCalledWith("off");
   });
 
   it("提问自动继续开关读取持久值并写回选择", async () => {
     const onAskUserQuestionAutoResolutionEnabledChange = vi.fn(async () => {});
 
-    await renderGeneralSection({
+    await renderAgentBehaviorSection({
       askUserQuestionAutoResolutionEnabled: false,
       onAskUserQuestionAutoResolutionEnabledChange,
     });

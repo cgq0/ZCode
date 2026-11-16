@@ -78,3 +78,6 @@ __pycache__/
 # ZCode harness 在工作区落盘的会话产物（plan 模式批准计划 .zcode/plans/、动态工作流 .zcode/workflows/ 等），
 # 用 plan/workflow 就会重建，属于会话产物不入库。
 .zcode/
+
+# CR-01：afterPack 生成的 NSIS helper define，按架构命名，不得入库
+packages/desktop/build/generated/

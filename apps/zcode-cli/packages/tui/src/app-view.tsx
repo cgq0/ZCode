@@ -6,7 +6,7 @@ import type {
   TurnId,
 } from "@zcode/contracts";
 import React from "react";
-import { ApprovalPanel } from "./app-approval-panel.js";
+import { ApprovalArea } from "./app-approval-panel.js";
 import { BackgroundTasksHint } from "./app-background-task-hint.js";
 import {
   actionPanelContentWidthForTerminal,
@@ -223,9 +223,11 @@ export function AppView(props: {
           })
         : null,
       props.approvalQueue[0]
-        ? h(ApprovalPanel, {
+        ? h(ApprovalArea, {
             approval: props.approvalQueue[0],
             contentWidth: actionPanelContentWidth,
+            copy: props.copy,
+            mainSessionId: props.options.getMainSessionId?.(),
           })
         : actionSelection
           ? h(SelectionPanel, {

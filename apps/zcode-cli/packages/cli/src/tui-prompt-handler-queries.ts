@@ -63,7 +63,7 @@ export const attachTuiAppQueries = (
 
   submitPrompt.listMcpServers = async () => {
     const activeApp = await getApp();
-    return activeApp.listMcpServers?.() ?? {};
+    return (await activeApp.listMcpServers?.()) ?? {};
   };
 
   submitPrompt.listBackgroundTasks = async () => {
