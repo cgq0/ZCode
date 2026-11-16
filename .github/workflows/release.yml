@@ -1,22 +1,22 @@
 # ============================================================================
-# release — cgq0 fork 专属 CI：构建 cli / server / desktop 三产物并发布 Release
+# release — cgq0 fork 专属 CI：构建 cli / desktop 两产物并发布 Release
 #
 # 注意：GitHub 只从 <默认分支>/.github/workflows/ 读取 workflow，本文件无法收进
 # cgq0/ 命名空间——这是 cgq0/ 隔离原则的唯一例外。上游当前没有 .github 目录，
 # 新文件不产生合并冲突；上游代码不依赖本文件。
 #
 # 发版形态（2026-10-24 裁决，见 cgq0/docs/diary/2026-10-24.mac.md；
-# 2026-10-25 选 B 裁决：zcode-server staged 目录换为 zcode-webapp 自托管 Web 产物；
-# 2026-11-01 裁决：win-x64 停止打包、zcode-serve.ps1 不再入包——Windows 本地运行
-# 问题不再投入，见 cgq0/docs/diary/2026-11-01.lin.md）：
+# 2026-11-01 裁决：win-x64 停止打包——Windows 本地运行问题不再投入，见
+# cgq0/docs/diary/2026-11-01.lin.md；
+# 2026-11-16 裁决：zcode-serve + zcode-webapp 自托管 Web 打包线整体下线，只出
+# cli + desktop 两产物——自托管 Web 使用概率太低，见 cgq0/docs/diary/2026-11-16.mac.md）：
 #   - 每平台一条 zip：zcode-v<版本>-cq.<n>.g<sha>-<target>.zip，包内文件名不带版本：
-#     zcode-cli、zcode-serve 与 zcode-webapp/（自包含 Web 服务：server bundle + 前端
-#     + agent + 随包 Node），darwin-x64 额外含
+#     zcode-cli，darwin-x64 额外含
 #     ZCode.fork.app（桌面只打 x86 mac，省 runner 配额；产品名/图标为 fork 专属
 #     蓝底，与官方 ZCode.app 可同装互不覆盖）。
-#   - 三产物版本统一为 monorepo 根版本 3.17.1 + `+cq.<n>.g<sha>`：cli 由 build.mjs
+#   - 两产物版本统一为 monorepo 根版本 + `+cq.<n>.g<sha>`：cli 由 build.mjs
 #     注入（base 从根 package.json 读取）；desktop 由 build-metadata.mjs 写入
-#     build-meta.json（About 展示）；server stage 本就读根版本。Release tag、zip
+#     build-meta.json（About 展示）。Release tag、zip
 #     文件名、二进制 --version、桌面 About 四处身份一致。
 #   - tag 恒为 v<根 package.json 版本号>（2026-10-24 起，此前为 zcode-cli-v*）。tag 不再
 #     参与 cq.<n> 基线：2026-10-25 起基线 = 最近官方同步合并提交（scripts/fork-build-meta.mjs）。
@@ -26,9 +26,6 @@
 # 构建链路（全部来自上游自带脚本，无自定义构建逻辑）：
 #   cli     pnpm --filter "@zcode/cli..." build → tsc shared dist → 插件 dist →
 #           pnpm --filter @zcode/cli sea --target T（Node SEA 单文件）
-#   webapp  pnpm --filter @zcode/server build（build:remote 产 entry-http 自包含
-#           bundle）→ pnpm --filter @zcode/web build →
-#           node cgq0/scripts/stage-webapp.mjs（bundle+web+agent+node-pty+随包 Node）
 #   desktop packages/desktop/scripts/bundle.mjs --os mac --arch x64（上游正式打包入口：
 #           runtime assets + production build + electron-builder + 运行时闭包校验）。
 #           必须走 bundle.mjs 而非裸 electron-builder：electron-builder.config.js 的
@@ -41,8 +38,10 @@
 #
 # 平台矩阵：linux-x64 / darwin-x64（+desktop）/ darwin-arm64。
 # win-x64 已于 2026-11-01 停打（用户裁决：Windows 本地运行问题不再投入）；
-# stage-webapp.mjs 的 win32 分支与 unsafe-pointer 的 win 知识保留在仓库里，
-# 万一恢复打包可参考日记 cgq0/docs/diary/2026-10-27.win.md 与 2026-11-01.lin.md。
+# zcode-serve + zcode-webapp 打包线已于 2026-11-16 下线（用户裁决：自托管 Web
+# 使用概率太低），stage-webapp.mjs / serve-web.mjs / zcode-serve 启动器一并删除，
+# 恢复方式见日记 cgq0/docs/diary/2026-11-16.mac.md（git 历史可取回脚本，
+# 源码级 self-host 能力仍在：pnpm --filter @zcode/server build && @zcode/web build）。
 # darwin 目标必须在 macOS runner 上构建（SEA 注入后需 codesign 临时签名）。
 # 2026-10-27 实测：macos-latest 排队 15 分钟未分配 runner 直接 cancelled
 # （win/linux 正常），偶发时段性；若持续复现需错峰重跑或审视账号 macOS 并发额度。
@@ -130,7 +129,7 @@ jobs:
         run: pnpm exec tsc -p packages/shared/tsconfig.json
 
       - name: Build official plugin MCP runtimes
-        # SEA 资产收集与 server stage 的 requiresRuntime 插件都断言 dist/mcp/server.js
+        # SEA 资产收集的 requiresRuntime 插件都断言 dist/mcp/server.js
         # （browser-use 复用 node-repl-host 的 server）。插件 dist 被 gitignore，干净 CI
         # 必须显式构建。清单对齐上游 build-desktop-agent-cli.mjs 的
         # requiredDevPluginRuntimeBuilds，上游新增 requiresRuntime 插件时需同步此处
@@ -212,19 +211,6 @@ jobs:
           }
           echo "SEA tui smoke OK"
 
-      - name: Stage zcode-webapp
-        # fork 自托管 Web 产物（2026-10-25 选 B 裁决，替换原 zcode-server staged 目录）：
-        # entry-http 自包含 bundle + web 静态 + agent zcode.cjs + node-pty 原生模块 +
-        # 随包 Node（复用 server-cli 的缓存/镜像链）。zip 内与 zcode-serve 同级。
-        # shell: bash 保留：多行命令依赖 bash 的 \ 续行（win leg 已移除，此护栏防回归）。
-        shell: bash
-        run: |
-          pnpm --filter @zcode/server build
-          pnpm --filter @zcode/web build
-          node cgq0/scripts/stage-webapp.mjs \
-            --target ${{ matrix.target }} \
-            --out webapp-pkg/zcode-webapp
-
       - name: Build desktop app (darwin-x64)
         if: matrix.desktop == true
         # 上游正式打包入口：prepare:runtime-assets → production build（含
@@ -242,7 +228,7 @@ jobs:
         run: node packages/desktop/scripts/bundle.mjs --os mac --arch x64
 
       - name: Package platform bundle into versioned zip
-        # 后缀只进 zip 文件名，包内产物名恒定（zcode-cli / zcode-webapp/ / .app
+        # 后缀只进 zip 文件名，包内产物名恒定（zcode-cli / .app
         # 随构建身份命名，当前为 ZCode.fork.app）：
         # 解压即用不随构建漂移，身份由 zip 名 + 二进制 --version / 桌面 About 双重承载。
         shell: bash
@@ -261,10 +247,6 @@ jobs:
           cp "apps/zcode-cli/packages/cli/dist/$cli_src" "release-pkg/$inner"
           # cp 会丢执行位（umask 归一），unix 内核要它才能直接跑
           chmod 755 "release-pkg/$inner"
-          # 自托管 Web 产物与启动器（2026-11-01 裁决：ps1 不再入包，win 打包已停）
-          cp -R "webapp-pkg/zcode-webapp" "release-pkg/zcode-webapp"
-          cp cgq0/webapp/zcode-serve "release-pkg/zcode-serve"
-          chmod 755 "release-pkg/zcode-serve"
           if [ "${{ matrix.desktop }}" = "true" ]; then
             app_path="$(ls -d packages/desktop/dist/mac/*.app 2>/dev/null | head -1 || true)"
             [ -n "$app_path" ] || { echo "desktop .app not found in packages/desktop/dist/mac" >&2; exit 1; }
@@ -276,11 +258,11 @@ jobs:
           # 硬编码名字会在改名后静默把 desktop 漏出 zip（2026-10-25 实测踩坑）；
           # zip 的 -y 必须加：.app 框架内有符号链接，默认解引用会复制出双份内容并破坏 app 结构
           (cd release-pkg && app_bundle="$(ls -d -- *.app 2>/dev/null | head -1 || true)" && if command -v zip > /dev/null 2>&1; then
-            entries=("$inner" "zcode-webapp" "zcode-serve")
+            entries=("$inner")
             if [ -n "$app_bundle" ]; then entries+=("$app_bundle"); fi
             zip -qry "../$zipname" "${entries[@]}"
           else
-            args=(a -tzip -bso0 "../$zipname" "$inner" "zcode-webapp" "zcode-serve")
+            args=(a -tzip -bso0 "../$zipname" "$inner")
             if [ -n "$app_bundle" ]; then args+=("$app_bundle"); fi
             7z "${args[@]}"
           fi)
@@ -382,34 +364,25 @@ jobs:
           TAG="v$VERSION"
           TITLE="ZCode fork v$VERSION · $META"
           cat > release-notes-body.md <<'NOTES'
-          fork 三产物统一构建（同一 commit 出包，cli/server/desktop 版本一致）。每个 zip
+          fork 两产物统一构建（同一 commit 出包，cli/desktop 版本一致）。每个 zip
           对应一个平台，包内文件名不带版本；本 Release 的资产每次 push 整体替换为最新构建，
           历史构建见该 run 的 Actions artifacts（保留 14 天）。
 
           | 文件 | 平台 | 包内内容 |
           |---|---|---|
-          | zcode-v*-darwin-x64.zip | macOS（Intel） | zcode-cli + zcode-serve + zcode-webapp + ZCode.fork.app |
-          | zcode-v*-darwin-arm64.zip | macOS（Apple Silicon） | zcode-cli + zcode-serve + zcode-webapp |
-          | zcode-v*-linux-x64.zip | Linux x64 | zcode-cli + zcode-serve + zcode-webapp |
+          | zcode-v*-darwin-x64.zip | macOS（Intel） | zcode-cli + ZCode.fork.app |
+          | zcode-v*-darwin-arm64.zip | macOS（Apple Silicon） | zcode-cli |
+          | zcode-v*-linux-x64.zip | Linux x64 | zcode-cli |
 
           **zcode-cli**（Node SEA 单文件）：解压得固定名 `zcode-cli`，改名 `zcode`
           放入 PATH（如 `~/.local/bin`），`chmod +x` 即用。
-
-          **zcode-serve + zcode-webapp**（自托管 Web 版，全平台）：解压后把目录加进
-          PATH，`zcode-serve start` 即起完整
-          Web 端（默认 127.0.0.1:3030，自带 Node 与 agent 运行时，无需系统依赖）。
-          远程访问推荐 SSH 隧道：`ssh -N -L 3030:127.0.0.1:3030 user@host`，本地
-          浏览器开 http://localhost:3030。`zcode-serve stop|status` 管理生命周期，
-          start/stop 幂等、后台脱离（SSH 断开不亡）。数据写用户 ~/.zcode，与
-          desktop/CLI 共享账号凭据，任务按宿主身份分区。暴露到局域网时加
-          `--token`。
 
           **ZCode.fork.app**（仅 darwin-x64）：拖入 `/Applications`，蓝底图标与
           "ZCode.fork" 名字和官方 ZCode.app 一眼区分，可同时安装互不覆盖。appId 与
           userData 仍与官方版相同：登录态、任务、配置全部共享，同时只能运行一个，
           切换前先退出另一个。
 
-          版本身份：三产物统一显示 `3.16.2+cq.<n>.g<sha>`（zcode-cli/zcode-server 的
+          版本身份：两产物统一显示 `3.16.2+cq.<n>.g<sha>`（zcode-cli 的
           `--version`，桌面「关于」窗口版本号旁的 `· cq...`），与 zip 文件名、Release
           标题一致，用于确认拿到的是哪次构建。
 
